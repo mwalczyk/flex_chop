@@ -42,43 +42,44 @@ DestroyCHOPInstance(CHOP_CPlusPlusBase* instance)
 };
 
 
-void CPlusPlusCHOPExample::setupCollisionPlanes()
+void CPlusPlusCHOPExample::setupCollisionPlanes(float w, float h)
 {
+
 	// BOTTOM
 	m_params.planes[0][0] = 0.0f; // normal x
 	m_params.planes[0][1] = 1.0f; // normal y
 	m_params.planes[0][2] = 0.0f; // normal z
-	m_params.planes[0][3] = 1.0f; // y-position
+	m_params.planes[0][3] = h; // y-position
 
 	// TOP
 	m_params.planes[1][0] = 0.0f; // normal x
 	m_params.planes[1][1] = -1.0f; // normal y
 	m_params.planes[1][2] = 0.0f; // normal z
-	m_params.planes[1][3] = 1.0f; // y-position
+	m_params.planes[1][3] = h; // y-position
 
 	// LEFT
 	m_params.planes[2][0] = 1.0f; // normal x
 	m_params.planes[2][1] = 0.0f; // normal y
 	m_params.planes[2][2] = 0.0f; // normal z
-	m_params.planes[2][3] = 1.0f; // y-position
+	m_params.planes[2][3] = w; // y-position
 
 	// RIGHT
 	m_params.planes[3][0] = -1.0f; // normal x
 	m_params.planes[3][1] = 0.0f; // normal y
 	m_params.planes[3][2] = 0.0f; // normal z
-	m_params.planes[3][3] = 1.0f; // y-position
+	m_params.planes[3][3] = w; // y-position
 
 	// FRONT
 	m_params.planes[4][0] = 0.0f; // normal x
 	m_params.planes[4][1] = 0.0f; // normal y
 	m_params.planes[4][2] = 1.0f; // normal z
-	m_params.planes[4][3] = 1.0f; // y-position
+	m_params.planes[4][3] = w; // y-position
 
 	// BACK
 	m_params.planes[5][0] = 0.0f; // normal x
 	m_params.planes[5][1] = 0.0f; // normal y
 	m_params.planes[5][2] = -1.0f; // normal z
-	m_params.planes[5][3] = 1.0f; // y-position
+	m_params.planes[5][3] = w; // y-position
 
 	m_params.numPlanes = 6;
 }
@@ -95,10 +96,11 @@ CPlusPlusCHOPExample::CPlusPlusCHOPExample(const OP_NodeInfo* info) : myNodeInfo
 	NvFlexSetSolverDescDefaults(&solver_description);
 	solver_description.maxParticles = m_max_number_of_particles;
 	solver_description.maxDiffuseParticles = 0;
+	//solver_description.featureMode = eNvFlexFeatureModeSimpleSolids;
 
 	m_solver = NvFlexCreateSolver(m_library, &solver_description);
 	
-	setupCollisionPlanes();
+	setupCollisionPlanes(0.5f, 0.5f);
 
 	const float particle_radius = 0.05f;
 
@@ -128,7 +130,8 @@ CPlusPlusCHOPExample::CPlusPlusCHOPExample(const OP_NodeInfo* info) : myNodeInfo
 	m_params.sleepThreshold = 0.0f;
 	m_params.shockPropagation = 0.0f;
 	m_params.restitution = 0.0f;
-	m_params.maxSpeed = 10.0f;
+	m_params.maxSpeed = 2.0f;
+	m_params.maxAcceleration = 2.0f;
 	m_params.relaxationMode = eNvFlexRelaxationLocal;
 	m_params.relaxationFactor = 1.0f;
 	m_params.solidPressure = 1.0f;
@@ -142,54 +145,10 @@ CPlusPlusCHOPExample::CPlusPlusCHOPExample(const OP_NodeInfo* info) : myNodeInfo
 	m_params.diffuseDrag = 0.8f;
 	m_params.diffuseBallistic = 16;
 	m_params.radius = particle_radius * 2.0f;
-	m_params.fluidRestDistance = particle_radius;
-	m_params.solidRestDistance = particle_radius;
 
-	//m_params.gravity[0] = 0.0f;
-	//m_params.gravity[1] = 0.0f;
-	//m_params.gravity[2] = 0.0f;
-	//m_params.wind[0] = 0.0f;
-	//m_params.wind[1] = 0.0f;
-	//m_params.wind[2] = 0.0f;
-	//m_params.radius = 0.15f;
-	//m_params.viscosity = 0.0f;
-	//m_params.dynamicFriction = 0.0f;
-	//m_params.staticFriction = 0.0f;
-	//m_params.particleFriction = 0.0f; // scale friction between particles by default
-	//m_params.freeSurfaceDrag = 0.0f;
-	//m_params.drag = 0.0f;
-	//m_params.lift = 0.0f;
-	//m_params.numIterations = 3;
-	//m_params.fluidRestDistance = 0.0f;
-	//m_params.solidRestDistance = 0.0f;
-	//m_params.anisotropyScale = 1.0f;
-	//m_params.anisotropyMin = 0.1f;
-	//m_params.anisotropyMax = 2.0f;
-	//m_params.smoothing = 1.0f;
-	//m_params.dissipation = 0.0f;
-	//m_params.damping = 0.0f;
-	//m_params.particleCollisionMargin = 0.0f;
-	//m_params.shapeCollisionMargin = 0.0f;
-	//m_params.collisionDistance = 0.0f;
-	//m_params.sleepThreshold = 0.0f;
-	//m_params.shockPropagation = 0.0f;
-	//m_params.restitution = 0.001f;
-	//m_params.maxSpeed = FLT_MAX;
-	//m_params.maxAcceleration = 100.0f;	// approximately 10x gravity
-	//m_params.smoothing = 1.0f;
-	//m_params.relaxationMode = eNvFlexRelaxationLocal;
-	//m_params.relaxationFactor = 1.0f;
-	//m_params.solidPressure = 1.0f;
-	//m_params.adhesion = 0.0f;
-	//m_params.cohesion = 0.1f;
-	//m_params.surfaceTension = 0.0f;
-	//m_params.vorticityConfinement = 80.0f;
-	//m_params.buoyancy = 1.0f;
-	//m_params.diffuseThreshold = 100.0f;
-	//m_params.diffuseBuoyancy = 1.0f;
-	//m_params.diffuseDrag = 0.8f;
-	//m_params.diffuseBallistic = 16;
-	//m_params.diffuseLifetime = 2.0f;
+	// If `radius` and `fluidRestDistance` are similar, the simulation will be less accurate but faster
+	m_params.fluidRestDistance = m_params.radius * 0.5f; // must be less than or equal to the radius parameter
+	m_params.solidRestDistance = m_params.radius * 0.5f; // must be less than or equal to the radius parameter
 
 	std::cout << "CHOP constructor called\n";
 }
@@ -294,7 +253,7 @@ CPlusPlusCHOPExample::execute(const CHOP_Output* output,
 
 					particles[i] = make_float4(tx, ty, tz, 1.0f);
 					velocities[i] = make_float3(vx, vy, vz);
-					phases[i] = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseFluid); 
+					phases[i] = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseFluid);
 					active[i] = i;
 				}
 
@@ -313,6 +272,10 @@ CPlusPlusCHOPExample::execute(const CHOP_Output* output,
 	// Update Flex
 	if (m_buffers_ready)
 	{
+		double bw, bh;
+		inputs->getParDouble2("Boundingbox", bw, bh);
+		setupCollisionPlanes(bw, bh);
+
 		double gx, gy, gz;
 		inputs->getParDouble3("Gravity", gx, gy, gz);
 		m_params.gravity[0] = gx;
@@ -464,6 +427,22 @@ CPlusPlusCHOPExample::setupParameters(OP_ParameterManager* manager)
 	}
 
 	{
+		OP_NumericParameter param_restitution;
+		param_restitution.name = "Boundingbox";
+		param_restitution.label = "Bounding Box";
+		param_restitution.defaultValues[0] = 0.5f;
+		param_restitution.minSliders[0] = 0.5f;
+		param_restitution.maxSliders[0] =  10.0;
+
+		param_restitution.defaultValues[1] = 0.5f;
+		param_restitution.minSliders[1] = 0.5f;
+		param_restitution.maxSliders[1] =  10.0;
+
+		OP_ParAppendResult res = manager->appendXYZ(param_restitution);
+		assert(res == OP_ParAppendResult::Success);
+	}
+
+	{
 		OP_NumericParameter param_gravity;
 		param_gravity.name = "Gravity";
 		param_gravity.label = "Gravity";
@@ -526,7 +505,7 @@ CPlusPlusCHOPExample::setupParameters(OP_ParameterManager* manager)
 		param_adhesion.label = "Adhesion";
 		param_adhesion.defaultValues[0] = 0.0;
 		param_adhesion.minSliders[0] = 0.0;
-		param_adhesion.maxSliders[0] =  10.0;
+		param_adhesion.maxSliders[0] =  1.0;
 
 		OP_ParAppendResult res = manager->appendFloat(param_adhesion);
 		assert(res == OP_ParAppendResult::Success);
@@ -538,7 +517,7 @@ CPlusPlusCHOPExample::setupParameters(OP_ParameterManager* manager)
 		param_cohesion.label = "Cohesion";
 		param_cohesion.defaultValues[0] = 0.025f;
 		param_cohesion.minSliders[0] = 0.0;
-		param_cohesion.maxSliders[0] =  10.0;
+		param_cohesion.maxSliders[0] =  1.0;
 
 		OP_ParAppendResult res = manager->appendFloat(param_cohesion);
 		assert(res == OP_ParAppendResult::Success);

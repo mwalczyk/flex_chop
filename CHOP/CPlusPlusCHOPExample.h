@@ -48,7 +48,7 @@ public:
 
 private:
 
-	void setupCollisionPlanes();
+	void setupCollisionPlanes(float w, float h);
 
 	const OP_NodeInfo* myNodeInfo;
 
