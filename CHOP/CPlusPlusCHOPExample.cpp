@@ -41,7 +41,6 @@ DestroyCHOPInstance(CHOP_CPlusPlusBase* instance)
 
 };
 
-
 void CPlusPlusCHOPExample::setupCollisionPlanes(float w, float h)
 {
 
@@ -102,7 +101,7 @@ CPlusPlusCHOPExample::CPlusPlusCHOPExample(const OP_NodeInfo* info) : myNodeInfo
 	
 	setupCollisionPlanes(0.5f, 0.5f);
 
-	const float particle_radius = 0.05f;
+	const float particle_radius = 0.01f;
 
 	m_params.gravity[0] = 0.0f;
 	m_params.gravity[1] = -9.8f;
@@ -111,9 +110,14 @@ CPlusPlusCHOPExample::CPlusPlusCHOPExample(const OP_NodeInfo* info) : myNodeInfo
 	m_params.wind[1] = 0.0f;
 	m_params.wind[2] = 0.0f;
 	m_params.viscosity = 0.0f;
-	m_params.dynamicFriction = 0.0f;
-	m_params.staticFriction = 0.0f;
-	m_params.particleFriction = 0.0f; // scale friction between particles by default
+	//m_params.dynamicFriction = 0.0f;
+	//m_params.staticFriction = 0.0f;
+	//m_params.particleFriction = 0.0f; 
+
+	m_params.dynamicFriction = 0.4f;
+	m_params.staticFriction = 0.4f;
+	m_params.particleFriction = 0.25f;
+
 	m_params.freeSurfaceDrag = 0.0f;
 	m_params.drag = 0.0f;
 	m_params.lift = 0.0f;
@@ -126,7 +130,7 @@ CPlusPlusCHOPExample::CPlusPlusCHOPExample(const OP_NodeInfo* info) : myNodeInfo
 	m_params.damping = 0.0f;
 	m_params.particleCollisionMargin = 0.0f;
 	m_params.shapeCollisionMargin = 0.0f;
-	m_params.collisionDistance = 0.0f;
+	m_params.collisionDistance = 0.005f;// 0.0f;
 	m_params.sleepThreshold = 0.0f;
 	m_params.shockPropagation = 0.0f;
 	m_params.restitution = 0.0f;
@@ -150,6 +154,16 @@ CPlusPlusCHOPExample::CPlusPlusCHOPExample(const OP_NodeInfo* info) : myNodeInfo
 	m_params.fluidRestDistance = m_params.radius * 0.5f; // must be less than or equal to the radius parameter
 	m_params.solidRestDistance = m_params.radius * 0.5f; // must be less than or equal to the radius parameter
 
+	m_force_field_callback = NvFlexExtCreateForceFieldCallback(m_solver);
+
+	m_force_field.mLinearFalloff = true;
+	m_force_field.mMode = eNvFlexExtModeForce;
+	m_force_field.mPosition[0] = 0.0f;
+	m_force_field.mPosition[1] = 0.0f;
+	m_force_field.mPosition[2] = 0.0f;
+	m_force_field.mRadius = 1.0f;
+	m_force_field.mStrength = -30.0f;
+
 	std::cout << "CHOP constructor called\n";
 }
 
@@ -163,6 +177,8 @@ CPlusPlusCHOPExample::~CPlusPlusCHOPExample()
 		NvFlexFreeBuffer(m_phases_buffer);
 		NvFlexFreeBuffer(m_active_indices_buffer);
 	}
+
+	NvFlexExtDestroyForceFieldCallback(m_force_field_callback);
 
 	NvFlexDestroySolver(m_solver);
 	NvFlexShutdown(m_library);
@@ -253,7 +269,7 @@ CPlusPlusCHOPExample::execute(const CHOP_Output* output,
 
 					particles[i] = make_float4(tx, ty, tz, 1.0f);
 					velocities[i] = make_float3(vx, vy, vz);
-					phases[i] = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseFluid);
+					phases[i] = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide);// | eNvFlexPhaseFluid);
 					active[i] = i;
 				}
 
@@ -272,22 +288,24 @@ CPlusPlusCHOPExample::execute(const CHOP_Output* output,
 	// Update Flex
 	if (m_buffers_ready)
 	{
-		double bw, bh;
-		inputs->getParDouble2("Boundingbox", bw, bh);
-		setupCollisionPlanes(bw, bh);
+		// Update the simulation based on the UI params
+		{
+			double bw, bh;
+			inputs->getParDouble2("Boundingbox", bw, bh);
+			setupCollisionPlanes(bw, bh);
 
-		double gx, gy, gz;
-		inputs->getParDouble3("Gravity", gx, gy, gz);
-		m_params.gravity[0] = gx;
-		m_params.gravity[1] = gy;
-		m_params.gravity[2] = gz;
-		m_params.restitution = inputs->getParDouble("Restitution");
-		m_params.viscosity = inputs->getParDouble("Viscosity");
-		m_params.vorticityConfinement = inputs->getParDouble("Vorticityconfinement");
-		m_params.adhesion = inputs->getParDouble("Adhesion");
-		m_params.cohesion = inputs->getParDouble("Cohesion");
-		m_params.surfaceTension = inputs->getParDouble("Surfacetension");
-
+			double gx, gy, gz;
+			inputs->getParDouble3("Gravity", gx, gy, gz);
+			m_params.gravity[0] = gx;
+			m_params.gravity[1] = gy;
+			m_params.gravity[2] = gz;
+			m_params.restitution = inputs->getParDouble("Restitution");
+			m_params.viscosity = inputs->getParDouble("Viscosity");
+			m_params.vorticityConfinement = inputs->getParDouble("Vorticityconfinement");
+			m_params.adhesion = inputs->getParDouble("Adhesion");
+			m_params.cohesion = inputs->getParDouble("Cohesion");
+			m_params.surfaceTension = inputs->getParDouble("Surfacetension");
+		}
 		NvFlexSetParams(m_solver, &m_params);
 
 		NvFlexSetParticles(m_solver, m_particle_buffer, NULL);
@@ -296,7 +314,26 @@ CPlusPlusCHOPExample::execute(const CHOP_Output* output,
 		NvFlexSetActive(m_solver, m_active_indices_buffer, NULL);
 
 		NvFlexSetActiveCount(m_solver, m_number_of_particles);
-		NvFlexUpdateSolver(m_solver, 1.0 / 60.0, 3, false);
+
+		// Update the force field based on UI params
+		{
+			double px, py, pz;
+			inputs->getParDouble3("Forceposition", px, py, pz);
+			m_force_field.mPosition[0] = px;
+			m_force_field.mPosition[1] = py;
+			m_force_field.mPosition[2] = pz;
+			m_force_field.mRadius = inputs->getParDouble("Forceradius");
+			m_force_field.mStrength = inputs->getParDouble("Forcestrength");
+			m_force_field.mMode = eNvFlexExtModeForce;
+			m_force_field.mLinearFalloff = true;
+		}
+		
+		NvFlexExtSetForceFields(m_force_field_callback, &m_force_field, 1);
+
+		// Update the solver
+		const float dt = 1.0f / 60.0f;
+		const int sub_steps = 3;
+		NvFlexUpdateSolver(m_solver, dt, sub_steps, false);
 
 
 
@@ -417,121 +454,165 @@ void
 CPlusPlusCHOPExample::setupParameters(OP_ParameterManager* manager)
 {
 	{
-		OP_NumericParameter	np;
+		OP_NumericParameter	param;
 
-		np.name = "Reset";
-		np.label = "Reset";
+		param.name = "Reset";
+		param.label = "Reset";
 		
-		OP_ParAppendResult res = manager->appendPulse(np);
+		OP_ParAppendResult res = manager->appendPulse(param);
 		assert(res == OP_ParAppendResult::Success);
 	}
 
 	{
-		OP_NumericParameter param_restitution;
-		param_restitution.name = "Boundingbox";
-		param_restitution.label = "Bounding Box";
-		param_restitution.defaultValues[0] = 0.5f;
-		param_restitution.minSliders[0] = 0.5f;
-		param_restitution.maxSliders[0] =  10.0;
+		OP_NumericParameter param;
+		param.name = "Boundingbox";
+		param.label = "Bounding Box";
+		param.defaultValues[0] = 0.5f;
+		param.minSliders[0] = 0.5f;
+		param.maxSliders[0] =  10.0;
 
-		param_restitution.defaultValues[1] = 0.5f;
-		param_restitution.minSliders[1] = 0.5f;
-		param_restitution.maxSliders[1] =  10.0;
+		param.defaultValues[1] = 0.5f;
+		param.minSliders[1] = 0.5f;
+		param.maxSliders[1] =  10.0;
 
-		OP_ParAppendResult res = manager->appendXYZ(param_restitution);
+		OP_ParAppendResult res = manager->appendXYZ(param);
 		assert(res == OP_ParAppendResult::Success);
 	}
 
 	{
-		OP_NumericParameter param_gravity;
-		param_gravity.name = "Gravity";
-		param_gravity.label = "Gravity";
-		param_gravity.defaultValues[0] = 0.0;
-		param_gravity.minSliders[0] = -10.0;
-		param_gravity.maxSliders[0] =  10.0;
+		OP_NumericParameter param;
+		param.name = "Forceposition";
+		param.label = "Force Position";
+		param.defaultValues[0] = 0.0f;
+		param.minSliders[0] = -10.0f;
+		param.maxSliders[0] =  10.0;
 
-		param_gravity.defaultValues[1] = -9.8;
-		param_gravity.minSliders[1] = -10.0;
-		param_gravity.maxSliders[1] =  10.0;
+		param.defaultValues[1] = 0.0f;
+		param.minSliders[1] = -10.0f;
+		param.maxSliders[1] =  10.0;
 
-		param_gravity.defaultValues[2] = 0.0;
-		param_gravity.minSliders[2] = -10.0;
-		param_gravity.maxSliders[2] =  10.0;
+		param.defaultValues[2] = 0.0f;
+		param.minSliders[2] = -10.0f;
+		param.maxSliders[2] =  10.0;
 
-		OP_ParAppendResult res = manager->appendXYZ(param_gravity);
+		OP_ParAppendResult res = manager->appendXYZ(param);
+		assert(res == OP_ParAppendResult::Success);
+	}
+
+	{
+		OP_NumericParameter param;
+		param.name = "Forceradius";
+		param.label = "Force Radius";
+		param.defaultValues[0] = 1.0f;
+		param.minSliders[0] = 0.0f;
+		param.maxSliders[0] = 10.0f;
+
+		OP_ParAppendResult res = manager->appendFloat(param);
+		assert(res == OP_ParAppendResult::Success);
+	}
+
+	{
+		OP_NumericParameter param;
+		param.name = "Forcestrength";
+		param.label = "Force Strength";
+		param.defaultValues[0] = -30.0f;
+		param.minSliders[0] = -100.0f;
+		param.maxSliders[0] = 100.0f;
+
+		OP_ParAppendResult res = manager->appendFloat(param);
+		assert(res == OP_ParAppendResult::Success);
+	}
+
+	{
+		OP_NumericParameter param;
+		param.name = "Gravity";
+		param.label = "Gravity";
+		param.defaultValues[0] = 0.0;
+		param.minSliders[0] = -10.0;
+		param.maxSliders[0] =  10.0;
+
+		param.defaultValues[1] = -9.8;
+		param.minSliders[1] = -10.0;
+		param.maxSliders[1] =  10.0;
+
+		param.defaultValues[2] = 0.0;
+		param.minSliders[2] = -10.0;
+		param.maxSliders[2] =  10.0;
+
+		OP_ParAppendResult res = manager->appendXYZ(param);
 		assert(res == OP_ParAppendResult::Success);
 	}
 	
 
 	{
-		OP_NumericParameter param_restitution;
-		param_restitution.name = "Restitution";
-		param_restitution.label = "Restitution";
-		param_restitution.defaultValues[0] = 0.0;
-		param_restitution.minSliders[0] = 0.0;
-		param_restitution.maxSliders[0] =  10.0;
+		OP_NumericParameter param;
+		param.name = "Restitution";
+		param.label = "Restitution";
+		param.defaultValues[0] = 0.0;
+		param.minSliders[0] = 0.0;
+		param.maxSliders[0] =  10.0;
 
-		OP_ParAppendResult res = manager->appendFloat(param_restitution);
+		OP_ParAppendResult res = manager->appendFloat(param);
 		assert(res == OP_ParAppendResult::Success);
 	}
 
 	{
-		OP_NumericParameter param_viscosity;
-		param_viscosity.name = "Viscosity";
-		param_viscosity.label = "Viscosity";
-		param_viscosity.defaultValues[0] = 0.0;
-		param_viscosity.minSliders[0] = 0.0;
-		param_viscosity.maxSliders[0] =  10.0;
+		OP_NumericParameter param;
+		param.name = "Viscosity";
+		param.label = "Viscosity";
+		param.defaultValues[0] = 0.0;
+		param.minSliders[0] = 0.0;
+		param.maxSliders[0] =  10.0;
 
-		OP_ParAppendResult res = manager->appendFloat(param_viscosity);
+		OP_ParAppendResult res = manager->appendFloat(param);
 		assert(res == OP_ParAppendResult::Success);
 	}
 
 	{
-		OP_NumericParameter param_vorticity_confinement;
-		param_vorticity_confinement.name = "Vorticityconfinement";
-		param_vorticity_confinement.label = "Vorticity Confinement";
-		param_vorticity_confinement.defaultValues[0] = 0.0;
-		param_vorticity_confinement.minSliders[0] = 0.0;
-		param_vorticity_confinement.maxSliders[0] =  10.0;
+		OP_NumericParameter param;
+		param.name = "Vorticityconfinement";
+		param.label = "Vorticity Confinement";
+		param.defaultValues[0] = 0.0;
+		param.minSliders[0] = 0.0;
+		param.maxSliders[0] =  10.0;
 
-		OP_ParAppendResult res = manager->appendFloat(param_vorticity_confinement);
+		OP_ParAppendResult res = manager->appendFloat(param);
 		assert(res == OP_ParAppendResult::Success);
 	}
 
 	{
-		OP_NumericParameter param_adhesion;
-		param_adhesion.name = "Adhesion";
-		param_adhesion.label = "Adhesion";
-		param_adhesion.defaultValues[0] = 0.0;
-		param_adhesion.minSliders[0] = 0.0;
-		param_adhesion.maxSliders[0] =  1.0;
+		OP_NumericParameter param;
+		param.name = "Adhesion";
+		param.label = "Adhesion";
+		param.defaultValues[0] = 0.0;
+		param.minSliders[0] = 0.0;
+		param.maxSliders[0] =  1.0;
 
-		OP_ParAppendResult res = manager->appendFloat(param_adhesion);
+		OP_ParAppendResult res = manager->appendFloat(param);
 		assert(res == OP_ParAppendResult::Success);
 	}
 
 	{
-		OP_NumericParameter param_cohesion;
-		param_cohesion.name = "Cohesion";
-		param_cohesion.label = "Cohesion";
-		param_cohesion.defaultValues[0] = 0.025f;
-		param_cohesion.minSliders[0] = 0.0;
-		param_cohesion.maxSliders[0] =  1.0;
+		OP_NumericParameter param;
+		param.name = "Cohesion";
+		param.label = "Cohesion";
+		param.defaultValues[0] = 0.025f;
+		param.minSliders[0] = 0.0;
+		param.maxSliders[0] =  1.0;
 
-		OP_ParAppendResult res = manager->appendFloat(param_cohesion);
+		OP_ParAppendResult res = manager->appendFloat(param);
 		assert(res == OP_ParAppendResult::Success);
 	}
 
 	{
-		OP_NumericParameter param_surface_tension;
-		param_surface_tension.name = "Surfacetension";
-		param_surface_tension.label = "Surface Tension";
-		param_surface_tension.defaultValues[0] = 0.0f;
-		param_surface_tension.minSliders[0] = 0.0;
-		param_surface_tension.maxSliders[0] =  10.0;
+		OP_NumericParameter param;
+		param.name = "Surfacetension";
+		param.label = "Surface Tension";
+		param.defaultValues[0] = 0.0f;
+		param.minSliders[0] = 0.0;
+		param.maxSliders[0] =  10.0;
 
-		OP_ParAppendResult res = manager->appendFloat(param_surface_tension);
+		OP_ParAppendResult res = manager->appendFloat(param);
 		assert(res == OP_ParAppendResult::Success);
 	}
 }

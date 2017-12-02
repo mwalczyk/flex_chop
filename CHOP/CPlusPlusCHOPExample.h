@@ -62,6 +62,8 @@ private:
 	NvFlexLibrary* m_library;
 	NvFlexSolver* m_solver;
 	NvFlexParams m_params;
+	NvFlexExtForceFieldCallback* m_force_field_callback;
+	NvFlexExtForceField m_force_field;
 
 	NvFlexBuffer* m_particle_buffer;
 	NvFlexBuffer* m_velocity_buffer;
