@@ -332,7 +332,7 @@ CPlusPlusCHOPExample::execute(const CHOP_Output* output,
 
 		// Update the solver
 		const float dt = 1.0f / 60.0f;
-		const int sub_steps = 3;
+		const int sub_steps = 1;
 		NvFlexUpdateSolver(m_solver, dt, sub_steps, false);
 
 
