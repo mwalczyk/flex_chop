@@ -25,6 +25,7 @@ struct SimBuffers
 	NvFlexVector<float4> positions;
 	NvFlexVector<float3> velocities;
 	NvFlexVector<int> phases;
+	NvFlexVector<int> activeIndices;
 
 	// springs
 	NvFlexVector<int> springIndices;
@@ -33,7 +34,7 @@ struct SimBuffers
 	NvFlexVector<int> triangles;
 
 	SimBuffers(NvFlexLibrary* l) :
-		positions(l), velocities(l), phases(l),
+		positions(l), velocities(l), phases(l), activeIndices(l),
 		springIndices(l), springLengths(l), springStiffness(l), triangles(l)
 	{
 

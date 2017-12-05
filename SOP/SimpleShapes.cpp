@@ -87,6 +87,7 @@ void SimpleShapes::MapBuffers()
 	g_buffers->positions.map();
 	g_buffers->velocities.map();
 	g_buffers->phases.map();
+	g_buffers->activeIndices.map();
 	g_buffers->springIndices.map();
 	g_buffers->springLengths.map();
 	g_buffers->springStiffness.map();
@@ -98,6 +99,7 @@ void SimpleShapes::UnmapBuffers()
 	g_buffers->positions.unmap();
 	g_buffers->velocities.unmap();
 	g_buffers->phases.unmap();
+	g_buffers->activeIndices.unmap();
 	g_buffers->springIndices.unmap();
 	g_buffers->springLengths.unmap();
 	g_buffers->springStiffness.unmap();
@@ -194,7 +196,7 @@ void SimpleShapes::CreateSpringGrid(float3 lower, int dx, int dy, int dz, float 
 	}	
 }
 
-void SimpleShapes::CreateSpring(int i, int j, float stiffness, float give=0.0f)
+void SimpleShapes::CreateSpring(int i, int j, float stiffness, float give)
 {
 	g_buffers->springIndices.push_back(i);
 	g_buffers->springIndices.push_back(j);
@@ -215,6 +217,8 @@ SimpleShapes::SimpleShapes(const OP_NodeInfo* info) : myNodeInfo(info)
 
 	// Initialize Flex objects
 	m_library = NvFlexInit();
+
+	g_buffers = new SimBuffers(m_library);
 
 	NvFlexSolverDesc solver_description;
 	NvFlexSetSolverDescDefaults(&solver_description);
@@ -290,14 +294,14 @@ SimpleShapes::SimpleShapes(const OP_NodeInfo* info) : myNodeInfo(info)
 SimpleShapes::~SimpleShapes()
 {
 	// Only free buffers if they were allocated in the first place
-	if (m_buffers_ready)
+	/*if (m_buffers_ready)
 	{
 		NvFlexFreeBuffer(m_particle_buffer);
 		NvFlexFreeBuffer(m_velocity_buffer);
 		NvFlexFreeBuffer(m_phases_buffer);
 		NvFlexFreeBuffer(m_active_buffer);
 		NvFlexFreeBuffer(m_indices_buffer);
-	}
+	}*/
 
 	NvFlexExtDestroyForceFieldCallback(m_force_field_callback);
 
@@ -542,23 +546,45 @@ SimpleShapes::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 	{
 		std::cout << "Resetting Flex system...\n";
 
-		if (inputs->getNumInputs() > 0)
+		//if (inputs->getNumInputs() > 0)
+		//{
+		//	const OP_SOPInput* sinput = inputs->getInputSOP(0);
+		//	if (sinput)
+		//	{
+		//		setupInputGeometry(sinput);
+		//	}
+		//}
+		//else
+		//{
+		//	std::cout << "Initializing default geometry...\n";
+
+		//	setupDefaultGeometry();
+		//}
+		MapBuffers();
+
 		{
-			const OP_SOPInput* sinput = inputs->getInputSOP(0);
-			if (sinput)
+			float stretchStiffness = 1.0f;
+			float bendStiffness = 0.5f;
+			float shearStiffness = 0.5f;
+			float radius = 0.15f;
+			int dimx = 70;
+			int dimz = 70;
+			int phase = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
+			float spacing = radius * 0.8f;
+
+			CreateSpringGrid(make_float3(-dimx * spacing * 0.5f, 1.5f, -dimz * spacing * 0.5f),
+				dimx, dimz, 1, spacing, phase, stretchStiffness, bendStiffness, shearStiffness, make_float3(0.0f, 0.0f, 0.0f), 1.0f);
+
+			for (size_t i = 0; i < g_buffers->positions.size(); ++i)
 			{
-				setupInputGeometry(sinput);
+				g_buffers->activeIndices.push_back(i);
 			}
-		}
-		else
-		{
-			std::cout << "Initializing default geometry...\n";
 
-			setupDefaultGeometry();
+			m_buffers_ready = true;
+			m_dirty = false;
 		}
 
-		m_buffers_ready = true;
-		m_dirty = false;
+		UnmapBuffers();
 	}
 
 
@@ -595,14 +621,14 @@ SimpleShapes::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 		}
 		NvFlexSetParams(m_solver, &m_params);
 
-		NvFlexSetParticles(m_solver, m_particle_buffer, NULL);
-		NvFlexSetVelocities(m_solver, m_velocity_buffer, NULL);
-		NvFlexSetPhases(m_solver, m_phases_buffer, NULL);
-		NvFlexSetActive(m_solver, m_active_buffer, NULL);
-		NvFlexSetDynamicTriangles(m_solver, m_indices_buffer, NULL, m_number_of_triangles); 
-		NvFlexSetSprings(m_solver, m_springs_buffer, m_rest_lengths_buffer, m_stiffness_buffer, m_number_of_springs);
+		NvFlexSetParticles(m_solver, g_buffers->positions.buffer, NULL);
+		NvFlexSetVelocities(m_solver, g_buffers->velocities.buffer, NULL);
+		NvFlexSetPhases(m_solver, g_buffers->phases.buffer, NULL);
+		NvFlexSetActive(m_solver, g_buffers->activeIndices.buffer, NULL);
+		NvFlexSetDynamicTriangles(m_solver, g_buffers->triangles.buffer, NULL, g_buffers->triangles.size() / 3); 
+		NvFlexSetSprings(m_solver, g_buffers->springIndices.buffer, g_buffers->springLengths.buffer, g_buffers->springStiffness.buffer, g_buffers->springLengths.size());
 		
-		NvFlexSetActiveCount(m_solver, m_number_of_particles);
+		NvFlexSetActiveCount(m_solver, g_buffers->activeIndices.size());
 
 		// Update the force field based on UI params
 		{
@@ -627,33 +653,39 @@ SimpleShapes::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 
 
 
-		// Get particle positions and velocities from the Flex simulation
-		NvFlexGetParticles(m_solver, m_particle_buffer, NULL);
-		NvFlexGetVelocities(m_solver, m_velocity_buffer, NULL);
-		NvFlexGetDynamicTriangles(m_solver, m_indices_buffer, NULL, m_number_of_triangles);
 
-		float4* particles = (float4*)NvFlexMap(m_particle_buffer, eNvFlexMapWait);
-		float3* velocities = (float3*)NvFlexMap(m_velocity_buffer, eNvFlexMapWait);
-		int* indices = (int*)NvFlexMap(m_indices_buffer, eNvFlexMapWait);
+
+
+
+
+
+		// Get particle positions and velocities from the Flex simulation
+		NvFlexGetParticles(m_solver, g_buffers->positions.buffer, NULL);
+		NvFlexGetVelocities(m_solver, g_buffers->velocities.buffer, NULL);
+		NvFlexGetDynamicTriangles(m_solver, g_buffers->triangles.buffer, NULL, m_number_of_triangles);
+
+		float4* particles = (float4*)NvFlexMap(g_buffers->positions.buffer, eNvFlexMapWait);
+		float3* velocities = (float3*)NvFlexMap(g_buffers->velocities.buffer, eNvFlexMapWait);
+		int* indices = (int*)NvFlexMap(g_buffers->triangles.buffer, eNvFlexMapWait);
 
 		// Copy to SOP output
-		for (size_t i = 0; i < m_number_of_particles; ++i)
+		for (size_t i = 0; i < g_buffers->positions.size(); ++i)
 		{
 			output->addPoint(particles[i].x, 
 				             particles[i].y, 
 							 particles[i].z);
 		}
 
-		for (int i = 0; i < m_number_of_triangles; ++i)
+		for (int i = 0; i < g_buffers->triangles.size() / 3; ++i)
 		{
 			output->addTriangle(indices[i * 3 + 0],
 								indices[i * 3 + 1],
 								indices[i * 3 + 2]);
 		}
 
-		NvFlexUnmap(m_particle_buffer);
-		NvFlexUnmap(m_velocity_buffer);
-		NvFlexUnmap(m_indices_buffer);
+		NvFlexUnmap(g_buffers->positions.buffer);
+		NvFlexUnmap(g_buffers->velocities.buffer);
+		NvFlexUnmap(g_buffers->triangles.buffer);
 	}
 }
 
