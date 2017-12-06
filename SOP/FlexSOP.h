@@ -10,6 +10,7 @@
 */
 
 #include "SOP_CPlusPlusBase.h"
+
 #include <string>
 #include <iostream>
 
@@ -21,13 +22,13 @@
 
 struct SimBuffers
 {
-	// general
+	// General
 	NvFlexVector<float4> positions;
 	NvFlexVector<float3> velocities;
 	NvFlexVector<int> phases;
 	NvFlexVector<int> activeIndices;
 
-	// springs
+	// Springs
 	NvFlexVector<int> springIndices;
 	NvFlexVector<float> springLengths;
 	NvFlexVector<float> springStiffness;
@@ -41,14 +42,13 @@ struct SimBuffers
 	}
 };
 
-// To get more help about these functions, look at SOP_CPlusPlusBase.h
-class SimpleShapes : public SOP_CPlusPlusBase
+class FlexSOP : public SOP_CPlusPlusBase
 {
 public:
 
-	SimpleShapes(const OP_NodeInfo* info);
+	FlexSOP(const OP_NodeInfo* info);
 
-	virtual ~SimpleShapes();
+	virtual ~FlexSOP();
 
 	virtual void	getGeneralInfo(SOP_GeneralInfo*) override;
 
@@ -74,13 +74,13 @@ public:
 private:
 
 	void setupCollisionPlanes(float w, float h);
-	void setupInputGeometry(const OP_SOPInput* sinput);
-	void setupDefaultGeometry();
+	void MapBuffers();
+	void UnmapBuffers();
+	void CreateSpringGrid(float3 lower, int dx, int dy, int dz, float radius, int phase, float stretchStiffness, float bendStiffness, float shearStiffness, float3 velocity, float invMass);
+	void CreateSpring(int i, int j, float stiffness, float give = 0.0f);
 
-	void cubeGeometry(SOP_Output* output, float scale = 1.0f);
-
-	const OP_NodeInfo*		myNodeInfo;
-	int32_t					myExecuteCount;
+	const OP_NodeInfo* myNodeInfo;
+	int32_t	myExecuteCount;
 
 	bool m_dirty = true;
 	bool m_buffers_ready = false;
@@ -94,20 +94,5 @@ private:
 	NvFlexParams m_params;
 	NvFlexExtForceFieldCallback* m_force_field_callback;
 	NvFlexExtForceField m_force_field;
-
-	NvFlexBuffer* m_particle_buffer;
-	NvFlexBuffer* m_velocity_buffer;
-	NvFlexBuffer* m_phases_buffer;
-	NvFlexBuffer* m_active_buffer;
-	NvFlexBuffer* m_indices_buffer;
-	NvFlexBuffer* m_springs_buffer;
-	NvFlexBuffer* m_rest_lengths_buffer;
-	NvFlexBuffer* m_stiffness_buffer;
-
-	void MapBuffers();
-	void UnmapBuffers();
-	void CreateSpringGrid(float3 lower, int dx, int dy, int dz, float radius, int phase, float stretchStiffness, float bendStiffness, float shearStiffness, float3 velocity, float invMass);
-	void CreateSpring(int i, int j, float stiffness, float give = 0.0f);
-
 	SimBuffers* g_buffers;
 };

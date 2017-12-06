@@ -8,7 +8,7 @@
 * modification, is permitted.
 */
 
-#include "SimpleShapes.h"
+#include "FlexSOP.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -29,19 +29,19 @@ extern "C"
 	SOP_CPlusPlusBase*
 	CreateSOPInstance(const OP_NodeInfo* info)
 	{
-		return new SimpleShapes(info);
+		return new FlexSOP(info);
 	}
 
 	DLLEXPORT
 	void
 	DestroySOPInstance(SOP_CPlusPlusBase* instance)
 	{
-		delete (SimpleShapes*)instance;
+		delete (FlexSOP*)instance;
 	}
 
 };
 
-void SimpleShapes::setupCollisionPlanes(float w, float h)
+void FlexSOP::setupCollisionPlanes(float w, float h)
 {
 	// BOTTOM
 	m_params.planes[0][0] = 0.0f; // normal x
@@ -82,7 +82,7 @@ void SimpleShapes::setupCollisionPlanes(float w, float h)
 	m_params.numPlanes = 6;
 }
 
-void SimpleShapes::MapBuffers()
+void FlexSOP::MapBuffers()
 {
 	g_buffers->positions.map();
 	g_buffers->velocities.map();
@@ -94,7 +94,7 @@ void SimpleShapes::MapBuffers()
 	g_buffers->triangles.map();
 }
 
-void SimpleShapes::UnmapBuffers()
+void FlexSOP::UnmapBuffers()
 {
 	g_buffers->positions.unmap();
 	g_buffers->velocities.unmap();
@@ -108,7 +108,7 @@ void SimpleShapes::UnmapBuffers()
 
 inline int GridIndex(int x, int y, int dx) { return y * dx + x; }
 
-void SimpleShapes::CreateSpringGrid(float3 lower, int dx, int dy, int dz, float radius, int phase, float stretchStiffness, float bendStiffness, float shearStiffness, float3 velocity, float invMass)
+void FlexSOP::CreateSpringGrid(float3 lower, int dx, int dy, int dz, float radius, int phase, float stretchStiffness, float bendStiffness, float shearStiffness, float3 velocity, float invMass)
 {
 	int baseIndex = int(g_buffers->positions.size());
 
@@ -196,7 +196,7 @@ void SimpleShapes::CreateSpringGrid(float3 lower, int dx, int dy, int dz, float 
 	}	
 }
 
-void SimpleShapes::CreateSpring(int i, int j, float stiffness, float give)
+void FlexSOP::CreateSpring(int i, int j, float stiffness, float give)
 {
 	g_buffers->springIndices.push_back(i);
 	g_buffers->springIndices.push_back(j);
@@ -210,8 +210,7 @@ void SimpleShapes::CreateSpring(int i, int j, float stiffness, float give)
 	g_buffers->springStiffness.push_back(stiffness);	
 }
 
-
-SimpleShapes::SimpleShapes(const OP_NodeInfo* info) : myNodeInfo(info)
+FlexSOP::FlexSOP(const OP_NodeInfo* info) : myNodeInfo(info)
 {
 	myExecuteCount = 0;
 
@@ -291,275 +290,38 @@ SimpleShapes::SimpleShapes(const OP_NodeInfo* info) : myNodeInfo(info)
 	std::cout << "SOP constructor called\n";
 }
 
-SimpleShapes::~SimpleShapes()
+FlexSOP::~FlexSOP()
 {
-	// Only free buffers if they were allocated in the first place
-	/*if (m_buffers_ready)
-	{
-		NvFlexFreeBuffer(m_particle_buffer);
-		NvFlexFreeBuffer(m_velocity_buffer);
-		NvFlexFreeBuffer(m_phases_buffer);
-		NvFlexFreeBuffer(m_active_buffer);
-		NvFlexFreeBuffer(m_indices_buffer);
-	}*/
+	// TODO: destroy SimBuffers...
 
 	NvFlexExtDestroyForceFieldCallback(m_force_field_callback);
-
 	NvFlexDestroySolver(m_solver);
 	NvFlexShutdown(m_library);
 }
 
-void
-SimpleShapes::getGeneralInfo(SOP_GeneralInfo* ginfo)
+void FlexSOP::getGeneralInfo(SOP_GeneralInfo* ginfo)
 {
 	ginfo->cookEveryFrameIfAsked = true;
 	ginfo->directToGPU = false;
 }
 
-
 //-----------------------------------------------------------------------------------------------------
 //										Generate a geometry on CPU
 //-----------------------------------------------------------------------------------------------------
 
-void SimpleShapes::setupDefaultGeometry()
-{
-	// 8 points define a cube
-	m_number_of_particles = 8;
-	m_number_of_triangles = 12;
-	m_number_of_indices = 3 * m_number_of_triangles;
-
-	// Re-allocate buffers
-	m_particle_buffer = NvFlexAllocBuffer(m_library, m_number_of_particles, sizeof(float4), eNvFlexBufferHost);
-	m_velocity_buffer = NvFlexAllocBuffer(m_library, m_number_of_particles, sizeof(float3), eNvFlexBufferHost);
-	m_phases_buffer = NvFlexAllocBuffer(m_library, m_number_of_particles, sizeof(int), eNvFlexBufferHost);
-	m_active_buffer = NvFlexAllocBuffer(m_library, m_number_of_particles, sizeof(int), eNvFlexBufferHost);
-	m_indices_buffer = NvFlexAllocBuffer(m_library, m_number_of_indices, sizeof(int), eNvFlexBufferHost);
-
-	// Map buffers for writing
-	float4* particles = (float4*)NvFlexMap(m_particle_buffer, eNvFlexMapWait);
-	float3* velocities = (float3*)NvFlexMap(m_velocity_buffer, eNvFlexMapWait);
-	int* phases = (int*)NvFlexMap(m_phases_buffer, eNvFlexMapWait);
-	int* active = (int*)NvFlexMap(m_active_buffer, eNvFlexMapWait);
-	int* indices = (int*)NvFlexMap(m_indices_buffer, eNvFlexMapWait);
-
-	float points[] = {
-		-1.0f, -1.0f,  1.0f,
-		1.0f, -1.0f,  1.0f,
-		1.0f,  1.0f,  1.0f,
-		-1.0f,  1.0f,  1.0f,
-
-		-1.0f, -1.0f, -1.0f,
-		1.0f, -1.0f, -1.0f,
-		1.0f,  1.0f, -1.0f,
-		-1.0f,  1.0f, -1.0f
-	};
-
-	int vertices[] = {
-		// front
-		0, 1, 2,
-		2, 3, 0,
-		// top
-		1, 5, 6,
-		6, 2, 1,
-		// back
-		7, 6, 5,
-		5, 4, 7,
-		// bottom
-		4, 0, 3,
-		3, 7, 4,
-		// left
-		4, 5, 1,
-		1, 0, 4,
-		// right
-		3, 2, 6,
-		6, 7, 3,
-	};
-
-	// Create particle, velocity, phase, and active indices buffers
-	for (int i = 0; i < m_number_of_particles; ++i)
-	{
-		float ptx = points[i * 3 + 0];
-		float pty = points[i * 3 + 1];
-		float ptz = points[i * 3 + 2];
-
-		float vx = 0.0f;
-		float vy = 0.0f;
-		float vz = 0.0f;
-
-		particles[i] = make_float4(ptx, pty, ptz, 1.0f);
-		velocities[i] = make_float3(vx, vy, vz);
-		phases[i] = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
-		active[i] = i;
-	}
-
-	// Create triangle indices buffer
-	memcpy(indices, vertices, m_number_of_indices * sizeof(int));
-
-	NvFlexUnmap(m_particle_buffer);
-	NvFlexUnmap(m_velocity_buffer);
-	NvFlexUnmap(m_phases_buffer);
-	NvFlexUnmap(m_active_buffer);
-	NvFlexUnmap(m_indices_buffer);
-}
-
-void SimpleShapes::setupInputGeometry(const OP_SOPInput* sinput)
-{
-	std::cout << "Initializing from input SOP...\n";
-
-	int ind = 0;
-	const Position* ptArr = sinput->getPointPositions();
-	const Vector* normals = nullptr;
-	const Color* colors = nullptr;
-	const TexCoord* textures = nullptr;
-	int32_t numTextures = 0;
-
-	// Determine the number of points / triangle indices
-	m_number_of_particles = sinput->getNumPoints();
-	m_number_of_triangles = sinput->getNumPrimitives();
-	m_number_of_indices = 3 * m_number_of_triangles;
-	m_number_of_springs = 3 * m_number_of_triangles;
-	std::cout << "Number of points: " << m_number_of_particles << "\n";
-	std::cout << "Number of triangles: " << m_number_of_triangles << "\n";
-	std::cout << "Number of indices: " << m_number_of_indices << "\n";
-
-	// Re-allocate buffers
-	m_particle_buffer = NvFlexAllocBuffer(m_library, m_number_of_particles, sizeof(float4), eNvFlexBufferHost);
-	m_velocity_buffer = NvFlexAllocBuffer(m_library, m_number_of_particles, sizeof(float3), eNvFlexBufferHost);
-	m_phases_buffer = NvFlexAllocBuffer(m_library, m_number_of_particles, sizeof(int), eNvFlexBufferHost);
-	m_active_buffer = NvFlexAllocBuffer(m_library, m_number_of_particles, sizeof(int), eNvFlexBufferHost);
-	m_indices_buffer = NvFlexAllocBuffer(m_library, m_number_of_indices, sizeof(int), eNvFlexBufferHost);
-
-	m_springs_buffer = NvFlexAllocBuffer(m_library, m_number_of_springs * 2, sizeof(int), eNvFlexBufferHost);
-	m_rest_lengths_buffer = NvFlexAllocBuffer(m_library, m_number_of_springs, sizeof(float), eNvFlexBufferHost);
-	m_stiffness_buffer = NvFlexAllocBuffer(m_library, m_number_of_springs, sizeof(float), eNvFlexBufferHost);
-
-	// Map buffers for writing
-	float4* particles = (float4*)NvFlexMap(m_particle_buffer, eNvFlexMapWait);
-	float3* velocities = (float3*)NvFlexMap(m_velocity_buffer, eNvFlexMapWait);
-	int* phases = (int*)NvFlexMap(m_phases_buffer, eNvFlexMapWait);
-	int* active = (int*)NvFlexMap(m_active_buffer, eNvFlexMapWait);
-	int* indices = (int*)NvFlexMap(m_indices_buffer, eNvFlexMapWait);
-	int* springs = (int*)NvFlexMap(m_springs_buffer, eNvFlexMapWait);
-	float* rest_lengths = (float*)NvFlexMap(m_rest_lengths_buffer, eNvFlexMapWait);
-	float* stiffness = (float*)NvFlexMap(m_stiffness_buffer, eNvFlexMapWait);
-
-	if (sinput->hasNormals()) { normals = sinput->getNormals()->normals; }
-	if (sinput->hasColors()) { colors = sinput->getColors()->colors; }
-	if (sinput->getTextures()->numTextureLayers) { textures = sinput->getTextures()->textures; numTextures = sinput->getTextures()->numTextureLayers; }
-
-	for (int i = 0; i < m_number_of_particles; i++)
-	{
-		float ptx = ptArr[i].x;
-		float pty = ptArr[i].y;
-		float ptz = ptArr[i].z;
-
-		float vx = 0.0f;
-		float vy = 0.0f;
-		float vz = 0.0f;
-
-		particles[i] = make_float4(ptx, pty, ptz, 1.0f);
-		velocities[i] = make_float3(vx, vy, vz);
-		phases[i] = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
-		active[i] = i;
-		/*if (normals)
-		{
-		output->setNormal(normals[i].x,
-		normals[i].y,
-		normals[i].z, i);
-		}
-
-		if (colors)
-		{
-		output->setColor(colors[i].r,
-		colors[i].g,
-		colors[i].b,
-		colors[i].a, i);
-		}
-
-		if (textures)
-		{
-		output->setTexture((float*)(textures + (i * numTextures * 3)), numTextures, i);
-		}
-
-		}
-
-		/*for (int i = 0; i < sinput->getNumCustomAttributes(); i++)
-		{
-		const CustomAttribInfo* customAttr = sinput->getCustomAttribute(i);
-
-		if (customAttr->attribType == AttribType::Float)
-		{
-		output->setCustomAttribute((char *)customAttr->name, customAttr->numComponents,
-		customAttr->attribType, (float *)customAttr->floatData, sinput->getNumPoints());
-		}
-		else
-		{
-		output->setCustomAttribute((char *)customAttr->name, customAttr->numComponents,
-		customAttr->attribType, (int32_t *)customAttr->intData, sinput->getNumPoints());
-		}
-		}*/
-	}
-
-	for (int i = 0; i < m_number_of_triangles; ++i)
-	{
-		const PrimitiveInfo primInfo = sinput->getPrimitive(i);
-		const int32_t* primVert = primInfo.pointIndices;
-
-		indices[i * 3 + 0] = *(primVert + 0);
-		indices[i * 3 + 1] = *(primVert + 1);
-		indices[i * 3 + 2] = *(primVert + 2);
-
-		// A
-		springs[i * 6 + 0] = *(primVert + 0);
-		springs[i * 6 + 1] = *(primVert + 1);
-		// B
-		springs[i * 6 + 2] = *(primVert + 0);
-		springs[i * 6 + 3] = *(primVert + 2);
-		// C
-		springs[i * 6 + 4] = *(primVert + 1);
-		springs[i * 6 + 5] = *(primVert + 2);
-	}
-
-	for (size_t i = 0; i < m_number_of_springs; i++)
-	{
-		rest_lengths[i] = 0.95f;
-		stiffness[i] = 1.0f;
-	}
-
-	NvFlexUnmap(m_particle_buffer);
-	NvFlexUnmap(m_velocity_buffer);
-	NvFlexUnmap(m_phases_buffer);
-	NvFlexUnmap(m_active_buffer);
-	NvFlexUnmap(m_indices_buffer);
-
-	std::cout << "Done setting up geometry\n";
-}
-
-void
-SimpleShapes::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
+void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 {
 	myExecuteCount++;
 
 	inputs->enablePar("Reset", true);
 
+	//-----------------------------------------------------------------------------------------------------
+	// Create spring grid
+	//-----------------------------------------------------------------------------------------------------
 	if (m_dirty)
 	{
 		std::cout << "Resetting Flex system...\n";
 
-		//if (inputs->getNumInputs() > 0)
-		//{
-		//	const OP_SOPInput* sinput = inputs->getInputSOP(0);
-		//	if (sinput)
-		//	{
-		//		setupInputGeometry(sinput);
-		//	}
-		//}
-		//else
-		//{
-		//	std::cout << "Initializing default geometry...\n";
-
-		//	setupDefaultGeometry();
-		//}
 		MapBuffers();
 
 		{
@@ -588,17 +350,9 @@ SimpleShapes::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 	}
 
 
-
-
-
-
-
-
-
-
-
-
+	//-----------------------------------------------------------------------------------------------------
 	// Update Flex
+	//-----------------------------------------------------------------------------------------------------
 	if (m_buffers_ready)
 	{
 		// Update the simulation based on the UI params
@@ -651,15 +405,9 @@ SimpleShapes::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 		NvFlexUpdateSolver(m_solver, dt, sub_steps, false);
 
 
-
-
-
-
-
-
-
-
-		// Get particle positions and velocities from the Flex simulation
+		//-----------------------------------------------------------------------------------------------------
+		// Particle read-back
+		//-----------------------------------------------------------------------------------------------------
 		NvFlexGetParticles(m_solver, g_buffers->positions.buffer, NULL);
 		NvFlexGetVelocities(m_solver, g_buffers->velocities.buffer, NULL);
 		NvFlexGetDynamicTriangles(m_solver, g_buffers->triangles.buffer, NULL, m_number_of_triangles);
@@ -689,25 +437,20 @@ SimpleShapes::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 	}
 }
 
-void 
-SimpleShapes::executeVBO(SOP_VBOOutput* output, OP_Inputs* inputs, void* reserved) 
+void FlexSOP::executeVBO(SOP_VBOOutput* output, OP_Inputs* inputs, void* reserved) 
 {
-
 }
 
 //-----------------------------------------------------------------------------------------------------
 //								CHOP, DAT, and custom parameters
 //-----------------------------------------------------------------------------------------------------
 
-int32_t
-SimpleShapes::getNumInfoCHOPChans()
+int32_t FlexSOP::getNumInfoCHOPChans()
 {
 	return 1;
 }
 
-void
-SimpleShapes::getInfoCHOPChan(int32_t index,
-	OP_InfoCHOPChan* chan)
+void FlexSOP::getInfoCHOPChan(int32_t index, OP_InfoCHOPChan* chan)
 {
 	if (index == 0)
 	{
@@ -716,8 +459,7 @@ SimpleShapes::getInfoCHOPChan(int32_t index,
 	}
 }
 
-bool
-SimpleShapes::getInfoDATSize(OP_InfoDATSize* infoSize)
+bool FlexSOP::getInfoDATSize(OP_InfoDATSize* infoSize)
 {
 	infoSize->rows = 1;
 	infoSize->cols = 1;
@@ -725,10 +467,7 @@ SimpleShapes::getInfoDATSize(OP_InfoDATSize* infoSize)
 	return true;
 }
 
-void
-SimpleShapes::getInfoDATEntries(int32_t index,
-	int32_t nEntries,
-	OP_InfoDATEntries* entries)
+void FlexSOP::getInfoDATEntries(int32_t index, int32_t nEntries, OP_InfoDATEntries* entries)
 {
 	static char tempBuffer1[4096];
 	static char tempBuffer2[4096];
@@ -753,8 +492,7 @@ SimpleShapes::getInfoDATEntries(int32_t index,
 	}
 }
 
-void
-SimpleShapes::setupParameters(OP_ParameterManager* manager)
+void FlexSOP::setupParameters(OP_ParameterManager* manager)
 {
 	{
 		OP_NumericParameter	param;
@@ -920,8 +658,7 @@ SimpleShapes::setupParameters(OP_ParameterManager* manager)
 	}
 }
 
-void
-SimpleShapes::pulsePressed(const char* name)
+void FlexSOP::pulsePressed(const char* name)
 {
 	if (!strcmp(name, "Reset"))
 	{
