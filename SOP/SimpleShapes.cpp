@@ -244,22 +244,22 @@ SimpleShapes::SimpleShapes(const OP_NodeInfo* info) : myNodeInfo(info)
 
 	m_params.freeSurfaceDrag = 0.0f;
 	m_params.drag = 0.0f;
-	m_params.lift = 0.0f;
+	m_params.lift = 3.0f;
 	m_params.numIterations = 3;
 	m_params.anisotropyScale = 1.0f;
 	m_params.anisotropyMin = 0.1f;
 	m_params.anisotropyMax = 2.0f;
-	m_params.smoothing = 1.0f;
+	m_params.smoothing = 4.0f;
 	m_params.dissipation = 0.0f;
 	m_params.damping = 0.0f;
 	m_params.particleCollisionMargin = 0.0f;
 	m_params.shapeCollisionMargin = 0.0f;
-	m_params.collisionDistance = particle_radius * 0.5f;
+	m_params.collisionDistance = particle_radius * 0.95f;
 	m_params.sleepThreshold = 0.0f;
 	m_params.shockPropagation = 0.0f;
 	m_params.restitution = 0.0f;
-	m_params.maxSpeed = 2.0f;
-	m_params.maxAcceleration = 2.0f;
+	m_params.maxSpeed = 100.0f;
+	m_params.maxAcceleration = 100.0f;
 	m_params.relaxationMode = eNvFlexRelaxationGlobal;
 	m_params.relaxationFactor = 0.25f;
 	m_params.solidPressure = 1.0f;
@@ -564,16 +564,16 @@ SimpleShapes::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 
 		{
 			float stretchStiffness = 1.0f;
-			float bendStiffness = 0.5f;
-			float shearStiffness = 0.5f;
-			float radius = 0.15f;
-			int dimx = 70;
-			int dimz = 70;
+			float bendStiffness = 0.95f;
+			float shearStiffness = 0.95f;
+			float radius = 0.09f;
+			int dimx = 30;
+			int dimz = 30;
 			int phase = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
 			float spacing = radius * 0.8f;
 
 			CreateSpringGrid(make_float3(-dimx * spacing * 0.5f, 1.5f, -dimz * spacing * 0.5f),
-				dimx, dimz, 1, spacing, phase, stretchStiffness, bendStiffness, shearStiffness, make_float3(0.0f, 0.0f, 0.0f), 1.0f);
+				dimx, dimz, 1, spacing, phase, stretchStiffness, bendStiffness, shearStiffness, make_float3(0.0f, 0.0f, 0.0f), 0.5f);
 
 			for (size_t i = 0; i < g_buffers->positions.size(); ++i)
 			{
