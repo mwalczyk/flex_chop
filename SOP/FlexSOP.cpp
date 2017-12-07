@@ -82,35 +82,88 @@ void FlexSOP::setupCollisionPlanes(float w, float h)
 	m_params.numPlanes = 6;
 }
 
+void FlexSOP::setupSimulationParams()
+{
+	// AABB that will enclose the scene
+	setupCollisionPlanes(0.5f, 0.5f);
+
+	const float particle_radius = 0.05f;
+	m_params.gravity[0] = 0.0f;
+	m_params.gravity[1] = -9.8f;
+	m_params.gravity[2] = 0.0f;
+	m_params.wind[0] = 0.0f;
+	m_params.wind[1] = 0.0f;
+	m_params.wind[2] = 0.0f;
+	m_params.viscosity = 0.0f;
+	m_params.dynamicFriction = 0.45f;
+	m_params.staticFriction = 0.45f;
+	m_params.particleFriction = 0.45f;
+	m_params.freeSurfaceDrag = 0.0f;
+	m_params.drag = 0.0f;
+	m_params.lift = 3.0f;
+	m_params.numIterations = 3;
+	m_params.anisotropyScale = 1.0f;
+	m_params.anisotropyMin = 0.1f;
+	m_params.anisotropyMax = 2.0f;
+	m_params.smoothing = 4.0f;
+	m_params.dissipation = 0.0f;
+	m_params.damping = 0.0f;
+	m_params.particleCollisionMargin = 0.0f;
+	m_params.shapeCollisionMargin = 0.0f;
+	m_params.collisionDistance = particle_radius * 0.95f;
+	m_params.sleepThreshold = 0.0f;
+	m_params.shockPropagation = 0.0f;
+	m_params.restitution = 0.0f;
+	m_params.maxSpeed = 100.0f;
+	m_params.maxAcceleration = 100.0f;
+	m_params.relaxationMode = eNvFlexRelaxationGlobal;
+	m_params.relaxationFactor = 0.25f;
+	m_params.solidPressure = 1.0f;
+	m_params.adhesion = 0.0f;
+	m_params.cohesion = 0.025f;
+	m_params.surfaceTension = 0.0f;
+	m_params.vorticityConfinement = 0.0f;
+	m_params.buoyancy = 1.0f;
+	m_params.diffuseThreshold = 100.0f;
+	m_params.diffuseBuoyancy = 1.0f;
+	m_params.diffuseDrag = 0.8f;
+	m_params.diffuseBallistic = 16;
+	m_params.radius = particle_radius * 2.0f;
+
+	// If `radius` and `fluidRestDistance` are similar, the simulation will be less accurate but faster
+	m_params.fluidRestDistance = m_params.radius * 0.5f; // must be less than or equal to the radius parameter
+	m_params.solidRestDistance = m_params.radius * 0.5f; // must be less than or equal to the radius parameter
+}
+
 void FlexSOP::MapBuffers()
 {
-	g_buffers->positions.map();
-	g_buffers->velocities.map();
-	g_buffers->phases.map();
-	g_buffers->activeIndices.map();
-	g_buffers->springIndices.map();
-	g_buffers->springLengths.map();
-	g_buffers->springStiffness.map();
-	g_buffers->triangles.map();
+	m_sim_buffers->positions.map();
+	m_sim_buffers->velocities.map();
+	m_sim_buffers->phases.map();
+	m_sim_buffers->activeIndices.map();
+	m_sim_buffers->springIndices.map();
+	m_sim_buffers->springLengths.map();
+	m_sim_buffers->springStiffness.map();
+	m_sim_buffers->triangles.map();
 }
 
 void FlexSOP::UnmapBuffers()
 {
-	g_buffers->positions.unmap();
-	g_buffers->velocities.unmap();
-	g_buffers->phases.unmap();
-	g_buffers->activeIndices.unmap();
-	g_buffers->springIndices.unmap();
-	g_buffers->springLengths.unmap();
-	g_buffers->springStiffness.unmap();
-	g_buffers->triangles.unmap();
+	m_sim_buffers->positions.unmap();
+	m_sim_buffers->velocities.unmap();
+	m_sim_buffers->phases.unmap();
+	m_sim_buffers->activeIndices.unmap();
+	m_sim_buffers->springIndices.unmap();
+	m_sim_buffers->springLengths.unmap();
+	m_sim_buffers->springStiffness.unmap();
+	m_sim_buffers->triangles.unmap();
 }
 
 inline int GridIndex(int x, int y, int dx) { return y * dx + x; }
 
 void FlexSOP::CreateSpringGrid(float3 lower, int dx, int dy, int dz, float radius, int phase, float stretchStiffness, float bendStiffness, float shearStiffness, float3 velocity, float invMass)
 {
-	int baseIndex = int(g_buffers->positions.size());
+	int baseIndex = int(m_sim_buffers->positions.size());
 
 	for (int z=0; z < dz; ++z)
 	{
@@ -123,19 +176,19 @@ void FlexSOP::CreateSpringGrid(float3 lower, int dx, int dy, int dz, float radiu
 				position.y = lower.y + radius * float(y);
 				position.z = lower.z + radius * float(z);
 
-				g_buffers->positions.push_back(make_float4(position.x, position.y, position.z, invMass));
-				g_buffers->velocities.push_back(velocity);
-				g_buffers->phases.push_back(phase);
+				m_sim_buffers->positions.push_back(make_float4(position.x, position.y, position.z, invMass));
+				m_sim_buffers->velocities.push_back(velocity);
+				m_sim_buffers->phases.push_back(phase);
 
 				if (x > 0 && y > 0)
 				{
-					g_buffers->triangles.push_back(baseIndex + GridIndex(x-1, y-1, dx));
-					g_buffers->triangles.push_back(baseIndex + GridIndex(x, y-1, dx));
-					g_buffers->triangles.push_back(baseIndex + GridIndex(x, y, dx));
+					m_sim_buffers->triangles.push_back(baseIndex + GridIndex(x-1, y-1, dx));
+					m_sim_buffers->triangles.push_back(baseIndex + GridIndex(x, y-1, dx));
+					m_sim_buffers->triangles.push_back(baseIndex + GridIndex(x, y, dx));
 
-					g_buffers->triangles.push_back(baseIndex + GridIndex(x-1, y-1, dx));
-					g_buffers->triangles.push_back(baseIndex + GridIndex(x, y, dx));
-					g_buffers->triangles.push_back(baseIndex + GridIndex(x-1, y, dx));
+					m_sim_buffers->triangles.push_back(baseIndex + GridIndex(x-1, y-1, dx));
+					m_sim_buffers->triangles.push_back(baseIndex + GridIndex(x, y, dx));
+					m_sim_buffers->triangles.push_back(baseIndex + GridIndex(x-1, y, dx));
 				}
 			}
 		}
@@ -198,87 +251,71 @@ void FlexSOP::CreateSpringGrid(float3 lower, int dx, int dy, int dz, float radiu
 
 void FlexSOP::CreateSpring(int i, int j, float stiffness, float give)
 {
-	g_buffers->springIndices.push_back(i);
-	g_buffers->springIndices.push_back(j);
+	m_sim_buffers->springIndices.push_back(i);
+	m_sim_buffers->springIndices.push_back(j);
 
-	float dx = g_buffers->positions[i].x - g_buffers->positions[j].x;
-	float dy = g_buffers->positions[i].y - g_buffers->positions[j].y;
-	float dz = g_buffers->positions[i].z - g_buffers->positions[j].z;
+	float dx = m_sim_buffers->positions[i].x - m_sim_buffers->positions[j].x;
+	float dy = m_sim_buffers->positions[i].y - m_sim_buffers->positions[j].y;
+	float dz = m_sim_buffers->positions[i].z - m_sim_buffers->positions[j].z;
 	float length = sqrtf(dx * dx + dy * dy + dz * dz);
 
-	g_buffers->springLengths.push_back((1.0f+give) * length);
-	g_buffers->springStiffness.push_back(stiffness);	
+	m_sim_buffers->springLengths.push_back((1.0f+give) * length);
+	m_sim_buffers->springStiffness.push_back(stiffness);	
 }
 
-FlexSOP::FlexSOP(const OP_NodeInfo* info) : myNodeInfo(info)
+void FlexSOP::buildOutputGeometry(SOP_Output* output)
 {
-	myExecuteCount = 0;
+	// Read-back simulation data from flex buffers
+	NvFlexGetParticles(m_solver, m_sim_buffers->positions.buffer, NULL);
+	NvFlexGetVelocities(m_solver, m_sim_buffers->velocities.buffer, NULL);
+	NvFlexGetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_number_of_triangles);
 
-	// Initialize Flex objects
+	float4* particles = (float4*)NvFlexMap(m_sim_buffers->positions.buffer, eNvFlexMapWait);
+	float3* velocities = (float3*)NvFlexMap(m_sim_buffers->velocities.buffer, eNvFlexMapWait);
+	int* indices = (int*)NvFlexMap(m_sim_buffers->triangles.buffer, eNvFlexMapWait);
+
+	// Copy to SOP output - could be GPU-bound if VBOs were registered with CUDA...
+	for (size_t i = 0; i < m_sim_buffers->positions.size(); ++i)
+	{
+		output->addPoint(particles[i].x, 
+						 particles[i].y, 
+						 particles[i].z);
+	}
+
+	for (int i = 0; i < m_sim_buffers->triangles.size() / 3; ++i)
+	{
+		output->addTriangle(indices[i * 3 + 0],
+							indices[i * 3 + 1],
+							indices[i * 3 + 2]);
+	}
+
+	NvFlexUnmap(m_sim_buffers->positions.buffer);
+	NvFlexUnmap(m_sim_buffers->velocities.buffer);
+	NvFlexUnmap(m_sim_buffers->triangles.buffer);
+}
+
+FlexSOP::FlexSOP(const OP_NodeInfo* info) : m_node_info(info)
+{
+	m_execute_count = 0;
+
+	// Initialize flex library
 	m_library = NvFlexInit();
 
-	g_buffers = new SimBuffers(m_library);
+	// Initialize flex buffers
+	m_sim_buffers = std::make_shared<SimBuffers>(m_library);
 
+	// Create solver from solver description struct
 	NvFlexSolverDesc solver_description;
 	NvFlexSetSolverDescDefaults(&solver_description);
 	solver_description.maxParticles = m_max_number_of_particles;
 	solver_description.maxDiffuseParticles = 0;
 	m_solver = NvFlexCreateSolver(m_library, &solver_description);
 
-	setupCollisionPlanes(0.5f, 0.5f);
+	// Setup params (gravity, friction, etc.)
+	setupSimulationParams();
 
-	const float particle_radius = 0.05f;
-
-	m_params.gravity[0] = 0.0f;
-	m_params.gravity[1] = -9.8f;
-	m_params.gravity[2] = 0.0f;
-	m_params.wind[0] = 0.0f;
-	m_params.wind[1] = 0.0f;
-	m_params.wind[2] = 0.0f;
-	m_params.viscosity = 0.0f;
-	
-	m_params.dynamicFriction = 0.45f;
-	m_params.staticFriction = 0.45f;
-	m_params.particleFriction = 0.45f;
-
-	m_params.freeSurfaceDrag = 0.0f;
-	m_params.drag = 0.0f;
-	m_params.lift = 3.0f;
-	m_params.numIterations = 3;
-	m_params.anisotropyScale = 1.0f;
-	m_params.anisotropyMin = 0.1f;
-	m_params.anisotropyMax = 2.0f;
-	m_params.smoothing = 4.0f;
-	m_params.dissipation = 0.0f;
-	m_params.damping = 0.0f;
-	m_params.particleCollisionMargin = 0.0f;
-	m_params.shapeCollisionMargin = 0.0f;
-	m_params.collisionDistance = particle_radius * 0.95f;
-	m_params.sleepThreshold = 0.0f;
-	m_params.shockPropagation = 0.0f;
-	m_params.restitution = 0.0f;
-	m_params.maxSpeed = 100.0f;
-	m_params.maxAcceleration = 100.0f;
-	m_params.relaxationMode = eNvFlexRelaxationGlobal;
-	m_params.relaxationFactor = 0.25f;
-	m_params.solidPressure = 1.0f;
-	m_params.adhesion = 0.0f;
-	m_params.cohesion = 0.025f;
-	m_params.surfaceTension = 0.0f;
-	m_params.vorticityConfinement = 0.0f;
-	m_params.buoyancy = 1.0f;
-	m_params.diffuseThreshold = 100.0f;
-	m_params.diffuseBuoyancy = 1.0f;
-	m_params.diffuseDrag = 0.8f;
-	m_params.diffuseBallistic = 16;
-	m_params.radius = particle_radius * 2.0f;
-
-	// If `radius` and `fluidRestDistance` are similar, the simulation will be less accurate but faster
-	m_params.fluidRestDistance = m_params.radius * 0.5f; // must be less than or equal to the radius parameter
-	m_params.solidRestDistance = m_params.radius * 0.5f; // must be less than or equal to the radius parameter
-
+	// Create a force field
 	m_force_field_callback = NvFlexExtCreateForceFieldCallback(m_solver);
-
 	m_force_field.mLinearFalloff = true;
 	m_force_field.mMode = eNvFlexExtModeForce;
 	m_force_field.mPosition[0] = 0.0f;
@@ -292,7 +329,7 @@ FlexSOP::FlexSOP(const OP_NodeInfo* info) : myNodeInfo(info)
 
 FlexSOP::~FlexSOP()
 {
-	// TODO: destroy SimBuffers...
+	// SimBuffers will be destroyed automatically (RAII)
 
 	NvFlexExtDestroyForceFieldCallback(m_force_field_callback);
 	NvFlexDestroySolver(m_solver);
@@ -311,7 +348,7 @@ void FlexSOP::getGeneralInfo(SOP_GeneralInfo* ginfo)
 
 void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 {
-	myExecuteCount++;
+	m_execute_count++;
 
 	inputs->enablePar("Reset", true);
 
@@ -325,21 +362,24 @@ void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 		MapBuffers();
 
 		{
-			float stretchStiffness = 1.0f;
-			float bendStiffness = 0.95f;
-			float shearStiffness = 0.95f;
-			float radius = 0.09f;
-			int dimx = 30;
-			int dimz = 30;
-			int phase = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
+			const float stretchStiffness = 1.0f;
+			const float bendStiffness = 0.95f;
+			const float shearStiffness = 0.95f;
+			const float radius = 0.09f;
+			const int dimx = 30;
+			const int dimz = 30;
+			const int phase = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
 			float spacing = radius * 0.8f;
 
-			CreateSpringGrid(make_float3(-dimx * spacing * 0.5f, 1.5f, -dimz * spacing * 0.5f),
-				dimx, dimz, 1, spacing, phase, stretchStiffness, bendStiffness, shearStiffness, make_float3(0.0f, 0.0f, 0.0f), 0.5f);
+			// Create springs
+			auto lower = make_float3(-dimx * spacing * 0.5f, 1.5f, -dimz * spacing * 0.5f);
+			auto velocity = make_float3(0.0f, 0.0f, 0.0f);
+			CreateSpringGrid(lower, dimx, dimz, 1, spacing, phase, stretchStiffness, bendStiffness, shearStiffness, velocity, 0.5f);
 
-			for (size_t i = 0; i < g_buffers->positions.size(); ++i)
+			// Enable all particles
+			for (size_t i = 0; i < m_sim_buffers->positions.size(); ++i)
 			{
-				g_buffers->activeIndices.push_back(i);
+				m_sim_buffers->activeIndices.push_back(i);
 			}
 
 			m_buffers_ready = true;
@@ -366,6 +406,7 @@ void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 			m_params.gravity[0] = gx;
 			m_params.gravity[1] = gy;
 			m_params.gravity[2] = gz;
+
 			m_params.restitution = inputs->getParDouble("Restitution");
 			m_params.viscosity = inputs->getParDouble("Viscosity");
 			m_params.vorticityConfinement = inputs->getParDouble("Vorticityconfinement");
@@ -375,14 +416,15 @@ void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 		}
 		NvFlexSetParams(m_solver, &m_params);
 
-		NvFlexSetParticles(m_solver, g_buffers->positions.buffer, NULL);
-		NvFlexSetVelocities(m_solver, g_buffers->velocities.buffer, NULL);
-		NvFlexSetPhases(m_solver, g_buffers->phases.buffer, NULL);
-		NvFlexSetActive(m_solver, g_buffers->activeIndices.buffer, NULL);
-		NvFlexSetDynamicTriangles(m_solver, g_buffers->triangles.buffer, NULL, g_buffers->triangles.size() / 3); 
-		NvFlexSetSprings(m_solver, g_buffers->springIndices.buffer, g_buffers->springLengths.buffer, g_buffers->springStiffness.buffer, g_buffers->springLengths.size());
+		// Set particles, velocities, etc. for flex simulation
+		NvFlexSetParticles(m_solver, m_sim_buffers->positions.buffer, NULL);
+		NvFlexSetVelocities(m_solver, m_sim_buffers->velocities.buffer, NULL);
+		NvFlexSetPhases(m_solver, m_sim_buffers->phases.buffer, NULL);
+		NvFlexSetActive(m_solver, m_sim_buffers->activeIndices.buffer, NULL);
+		NvFlexSetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_sim_buffers->triangles.size() / 3); 
+		NvFlexSetSprings(m_solver, m_sim_buffers->springIndices.buffer, m_sim_buffers->springLengths.buffer, m_sim_buffers->springStiffness.buffer, m_sim_buffers->springLengths.size());
 		
-		NvFlexSetActiveCount(m_solver, g_buffers->activeIndices.size());
+		NvFlexSetActiveCount(m_solver, m_sim_buffers->activeIndices.size());
 
 		// Update the force field based on UI params
 		{
@@ -391,12 +433,12 @@ void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 			m_force_field.mPosition[0] = px;
 			m_force_field.mPosition[1] = py;
 			m_force_field.mPosition[2] = pz;
+
 			m_force_field.mRadius = inputs->getParDouble("Forceradius");
 			m_force_field.mStrength = inputs->getParDouble("Forcestrength");
 			m_force_field.mMode = eNvFlexExtModeForce;
 			m_force_field.mLinearFalloff = true;
 		}
-
 		NvFlexExtSetForceFields(m_force_field_callback, &m_force_field, 1);
 
 		// Update the solver
@@ -406,34 +448,9 @@ void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 
 
 		//-----------------------------------------------------------------------------------------------------
-		// Particle read-back
+		// Update SOP output geometry
 		//-----------------------------------------------------------------------------------------------------
-		NvFlexGetParticles(m_solver, g_buffers->positions.buffer, NULL);
-		NvFlexGetVelocities(m_solver, g_buffers->velocities.buffer, NULL);
-		NvFlexGetDynamicTriangles(m_solver, g_buffers->triangles.buffer, NULL, m_number_of_triangles);
-
-		float4* particles = (float4*)NvFlexMap(g_buffers->positions.buffer, eNvFlexMapWait);
-		float3* velocities = (float3*)NvFlexMap(g_buffers->velocities.buffer, eNvFlexMapWait);
-		int* indices = (int*)NvFlexMap(g_buffers->triangles.buffer, eNvFlexMapWait);
-
-		// Copy to SOP output
-		for (size_t i = 0; i < g_buffers->positions.size(); ++i)
-		{
-			output->addPoint(particles[i].x, 
-				             particles[i].y, 
-							 particles[i].z);
-		}
-
-		for (int i = 0; i < g_buffers->triangles.size() / 3; ++i)
-		{
-			output->addTriangle(indices[i * 3 + 0],
-								indices[i * 3 + 1],
-								indices[i * 3 + 2]);
-		}
-
-		NvFlexUnmap(g_buffers->positions.buffer);
-		NvFlexUnmap(g_buffers->velocities.buffer);
-		NvFlexUnmap(g_buffers->triangles.buffer);
+		buildOutputGeometry(output);
 	}
 }
 
@@ -455,7 +472,7 @@ void FlexSOP::getInfoCHOPChan(int32_t index, OP_InfoCHOPChan* chan)
 	if (index == 0)
 	{
 		chan->name = "executeCount";
-		chan->value = (float)myExecuteCount;
+		chan->value = (float)m_execute_count;
 	}
 }
 
@@ -484,7 +501,7 @@ void FlexSOP::getInfoDATEntries(int32_t index, int32_t nEntries, OP_InfoDATEntri
 
 		// Set the value for the second column
 #ifdef WIN32
-		sprintf_s(tempBuffer2, "%d", myExecuteCount);
+		sprintf_s(tempBuffer2, "%d", m_execute_count);
 #else // macOS
 		snprintf(tempBuffer2, sizeof(tempBuffer2), "%d", myExecuteCount);
 #endif
