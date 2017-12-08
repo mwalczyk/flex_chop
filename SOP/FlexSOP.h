@@ -28,22 +28,43 @@ struct SimBuffers
 	NvFlexVector<float3> velocities;
 	NvFlexVector<int> phases;
 	NvFlexVector<int> activeIndices;
-
+	
 	// Springs
 	NvFlexVector<int> springIndices;
 	NvFlexVector<float> springLengths;
 	NvFlexVector<float> springStiffness;
 	NvFlexVector<int> triangles;
 
+	// Rigids
+	NvFlexVector<int> rigidOffsets;
+	NvFlexVector<int> rigidIndices;
+	//NvFlexVector<int> rigidMeshSize;
+	NvFlexVector<float> rigidCoefficients;
+	NvFlexVector<float> rigidPlasticThresholds;
+	NvFlexVector<float> rigidPlasticCreeps;
+	NvFlexVector<float4> rigidRotations;
+	NvFlexVector<float3> rigidTranslations;
+	NvFlexVector<float3> rigidLocalPositions;
+	NvFlexVector<float4> rigidLocalNormals;
+
 	SimBuffers(NvFlexLibrary* l) :
-		positions(l), 
-		velocities(l), 
-		phases(l), 
+		positions(l),
+		velocities(l),
+		phases(l),
 		activeIndices(l),
-		springIndices(l), 
-		springLengths(l), 
-		springStiffness(l), 
-		triangles(l)
+		springIndices(l),
+		springLengths(l),
+		springStiffness(l),
+		triangles(l),
+		rigidOffsets(l),
+		rigidIndices(l),
+		rigidCoefficients(l),
+		rigidPlasticThresholds(l),
+		rigidPlasticCreeps(l),
+		rigidRotations(l),
+		rigidTranslations(l),
+		rigidLocalPositions(l),
+		rigidLocalNormals(l)
 	{
 	}
 };
@@ -71,6 +92,7 @@ private:
 	void setupCollisionPlanes(float w, float h);
 	void MapBuffers();
 	void UnmapBuffers();
+	void createCubeSoftBody();
 	void CreateSpringGrid(float3 lower, int dx, int dy, int dz, float radius, int phase, float stretchStiffness, float bendStiffness, float shearStiffness, float3 velocity, float invMass);
 	void CreateSpring(int i, int j, float stiffness, float give = 0.0f);
 	void buildOutputGeometry(SOP_Output* output);

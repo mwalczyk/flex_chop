@@ -87,9 +87,9 @@ void FlexSOP::setupSimulationParams()
 	// AABB that will enclose the scene
 	setupCollisionPlanes(0.5f, 0.5f);
 
-	const float particle_radius = 0.05f;
+	const float particle_radius = 0.1f;
 	m_params.gravity[0] = 0.0f;
-	m_params.gravity[1] = -9.8f;
+	m_params.gravity[1] = 0.0f;
 	m_params.gravity[2] = 0.0f;
 	m_params.wind[0] = 0.0f;
 	m_params.wind[1] = 0.0f;
@@ -100,7 +100,7 @@ void FlexSOP::setupSimulationParams()
 	m_params.particleFriction = 0.45f;
 	m_params.freeSurfaceDrag = 0.0f;
 	m_params.drag = 0.0f;
-	m_params.lift = 3.0f;
+	m_params.lift = 0.0f;
 	m_params.numIterations = 3;
 	m_params.anisotropyScale = 1.0f;
 	m_params.anisotropyMin = 0.1f;
@@ -110,14 +110,14 @@ void FlexSOP::setupSimulationParams()
 	m_params.damping = 0.0f;
 	m_params.particleCollisionMargin = 0.0f;
 	m_params.shapeCollisionMargin = 0.0f;
-	m_params.collisionDistance = particle_radius * 0.95f;
+	m_params.collisionDistance = particle_radius * 0.75f;
 	m_params.sleepThreshold = 0.0f;
 	m_params.shockPropagation = 0.0f;
 	m_params.restitution = 0.0f;
 	m_params.maxSpeed = 100.0f;
 	m_params.maxAcceleration = 100.0f;
-	m_params.relaxationMode = eNvFlexRelaxationGlobal;
-	m_params.relaxationFactor = 0.25f;
+	m_params.relaxationMode = eNvFlexRelaxationLocal;
+	m_params.relaxationFactor = 0.6f;
 	m_params.solidPressure = 1.0f;
 	m_params.adhesion = 0.0f;
 	m_params.cohesion = 0.025f;
@@ -145,6 +145,17 @@ void FlexSOP::MapBuffers()
 	m_sim_buffers->springLengths.map();
 	m_sim_buffers->springStiffness.map();
 	m_sim_buffers->triangles.map();
+
+	m_sim_buffers->rigidOffsets.map();
+	m_sim_buffers->rigidIndices.map();
+	//m_sim_buffers->rigidMeshSize.map();
+	m_sim_buffers->rigidCoefficients.map();
+	m_sim_buffers->rigidPlasticThresholds.map();
+	m_sim_buffers->rigidPlasticCreeps.map();
+	m_sim_buffers->rigidRotations.map();
+	m_sim_buffers->rigidTranslations.map();
+	m_sim_buffers->rigidLocalPositions.map();
+	m_sim_buffers->rigidLocalNormals.map();
 }
 
 void FlexSOP::UnmapBuffers()
@@ -157,6 +168,254 @@ void FlexSOP::UnmapBuffers()
 	m_sim_buffers->springLengths.unmap();
 	m_sim_buffers->springStiffness.unmap();
 	m_sim_buffers->triangles.unmap();
+
+	m_sim_buffers->rigidOffsets.unmap();
+	m_sim_buffers->rigidIndices.unmap();
+	//m_sim_buffers->rigidMeshSize.unmap();
+	m_sim_buffers->rigidCoefficients.unmap();
+	m_sim_buffers->rigidPlasticThresholds.unmap();
+	m_sim_buffers->rigidPlasticCreeps.unmap();
+	m_sim_buffers->rigidRotations.unmap();
+	m_sim_buffers->rigidTranslations.unmap();
+	m_sim_buffers->rigidLocalPositions.unmap();
+	m_sim_buffers->rigidLocalNormals.unmap();
+}
+
+// Calculates the center of mass of every rigid given a set of particle positions and rigid indices
+void CalculateRigidCentersOfMass(const float4* restPositions, int numRestPositions, const int* offsets, float3* translations, const int* indices, int numRigids)
+{
+	// To improve the accuracy of the result, first transform the restPositions to relative coordinates (by finding the mean and subtracting that from all positions)
+	// Note: If this is not done, one might see ghost forces if the mean of the restPositions is far from the origin.
+	float3 shapeOffset = make_float3(0.0f, 0.0f, 0.0f);
+
+	for (int i = 0; i < numRestPositions; i++)
+	{
+		float4 rp = restPositions[i];
+		shapeOffset.x += rp.x;
+		shapeOffset.y += rp.y;
+		shapeOffset.z += rp.z;
+	}
+
+	shapeOffset.x /= float(numRestPositions);
+	shapeOffset.y /= float(numRestPositions);
+	shapeOffset.z /= float(numRestPositions);
+
+	for (int i = 0; i < numRigids; ++i)
+	{
+		const int startIndex = offsets[i];
+		const int endIndex = offsets[i + 1];
+
+		const int n = endIndex-startIndex;
+
+		assert(n);
+
+		float3 com = make_float3(0.0f, 0.0f, 0.0f);
+
+		for (int j=startIndex; j < endIndex; ++j)
+		{
+			const int r = indices[j];
+
+			float4 rp = restPositions[r];
+			rp.x -= shapeOffset.x;
+			rp.y -= shapeOffset.y;
+			rp.z -= shapeOffset.z;
+
+			// By subtracting shapeOffset the calculation is done in relative coordinates
+			com.x += rp.x;
+			com.y += rp.y;
+			com.z += rp.z;
+		}
+
+		com.x /= float(n);
+		com.y /= float(n);
+		com.z /= float(n);
+
+		// Add the shapeOffset to switch back to absolute coordinates
+		com.x += shapeOffset.x;
+		com.y += shapeOffset.y;
+		com.z += shapeOffset.z;
+
+		translations[i] = com;
+	}
+}
+
+// Calculates local space positions given a set of particle positions, rigid indices and centers of mass of the rigids
+void CalculateRigidLocalPositions(const float4* restPositions, const int* offsets, const float3* translations, const int* indices, int numRigids, float3* localPositions)
+{
+	int count = 0;
+
+	for (int i=0; i < numRigids; ++i)
+	{
+		const int startIndex = offsets[i];
+		const int endIndex = offsets[i + 1];
+
+		assert(endIndex - startIndex);
+
+		for (int j=startIndex; j < endIndex; ++j)
+		{
+			const int r = indices[j];
+
+			float4 rp = restPositions[r];
+			float3 tr = translations[i];
+
+			localPositions[count++] = make_float3(rp.x - tr.x, rp.y - tr.y, rp.z - tr.z);
+		}
+	}
+}
+
+void FlexSOP::createCubeSoftBody()
+{
+	float vertices[] = {
+		// front
+		-1.0f, -1.0f,  1.0f,
+		 1.0f, -1.0f,  1.0f,
+		 1.0f,  1.0f,  1.0f,
+		-1.0f,  1.0f,  1.0f,
+
+		// back
+		-1.0f, -1.0f, -1.0f,
+		 1.0f, -1.0f, -1.0f,
+		 1.0f,  1.0f, -1.0f,
+		-1.0f,  1.0f, -1.0f
+	};
+	
+	int32_t indices[] = {
+		// front
+		0, 1, 2,
+		2, 3, 0,
+		// top
+		1, 5, 6,
+		6, 2, 1,
+		// back
+		7, 6, 5,
+		5, 4, 7,
+		// bottom
+		4, 0, 3,
+		3, 7, 4,
+		// left
+		4, 5, 1,
+		1, 0, 4,
+		// right
+		3, 2, 6,
+		6, 7, 3,
+	};
+
+	const size_t number_of_vertices = 8;
+	const size_t number_of_indices = 36;
+
+	const float radius = 0.1f;
+	const float cluster_spacing = 1.0f;
+	const float cluster_radius = 0.0f;
+	const float cluster_stiffness = 0.25f;
+	const float link_radius = 0.0f;
+	const float link_stiffness = 1.0f;
+	const float global_stiffness = 1.0f;
+	const float surface_sampling = 0.0f;
+	const float volume_sampling = 0.1f;
+	const float cluster_plastic_threshold = 0.0f;// 0.0015f;
+	const float cluster_plastic_creep = 0.125f;
+
+	// Create soft body definition
+	NvFlexExtAsset* asset = NvFlexExtCreateSoftFromMesh(
+		vertices,
+		number_of_vertices,
+		indices,
+		number_of_indices,
+		radius,
+		volume_sampling,
+		surface_sampling,
+		cluster_spacing * radius,
+		cluster_radius * radius,
+		cluster_stiffness,
+		link_radius * radius,
+		link_stiffness,
+		global_stiffness, 
+		cluster_plastic_threshold, 
+		cluster_plastic_creep);
+	
+	// Add particle data to buffers
+	for (size_t i = 0; i < asset->numParticles; ++i)
+	{
+		float px = asset->particles[i * 4 + 0];
+		float py = asset->particles[i * 4 + 1];
+		float pz = asset->particles[i * 4 + 2];
+		float pw = asset->particles[i * 4 + 3];
+
+		m_sim_buffers->positions.push_back(make_float4(px, py, pz, pw));
+		m_sim_buffers->velocities.push_back(make_float3(0.0f, 0.0f, 0.0f));
+
+		const int phase = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
+		m_sim_buffers->phases.push_back(phase);
+	}
+
+	const size_t particleOffset = 0;
+	const size_t indexOffset = 0;
+
+	// Add shape data to solver
+	for (int i = 0; i < asset->numShapeIndices; ++i)
+	{
+		m_sim_buffers->rigidIndices.push_back(asset->shapeIndices[i] + particleOffset);
+	}
+
+	for (int i = 0; i < asset->numShapes; ++i)
+	{
+		m_sim_buffers->rigidOffsets.push_back(asset->shapeOffsets[i] + indexOffset);
+
+		float scx = asset->shapeCenters[i * 3 + 0];
+		float scy = asset->shapeCenters[i * 3 + 1];
+		float scz = asset->shapeCenters[i * 3 + 2];
+		m_sim_buffers->rigidTranslations.push_back(make_float3(scx, scy, scz));
+		m_sim_buffers->rigidRotations.push_back(make_float4(0.0f, 0.0f, 0.0f, 1.0f));
+		m_sim_buffers->rigidCoefficients.push_back(asset->shapeCoefficients[i]);
+		m_sim_buffers->rigidPlasticCreeps.push_back(asset->shapePlasticCreeps[i]);
+		m_sim_buffers->rigidPlasticThresholds.push_back(asset->shapePlasticThresholds[i]);
+	}
+
+	// Add link data to the solver 
+	for (size_t i = 0; i < asset->numSprings; ++i)
+	{
+		m_sim_buffers->springIndices.push_back(asset->springIndices[i * 2 + 0]);
+		m_sim_buffers->springIndices.push_back(asset->springIndices[i * 2 + 1]);
+
+		m_sim_buffers->springStiffness.push_back(asset->springCoefficients[i]);
+		m_sim_buffers->springLengths.push_back(asset->springRestLengths[i]);
+	}
+
+
+
+
+
+	// Builds rigids constraints
+	if (m_sim_buffers->rigidOffsets.size())
+	{
+		assert(m_sim_buffers->rigidOffsets.size() > 1);
+
+		const int numRigids = m_sim_buffers->rigidOffsets.size() - 1;
+
+		// If the centers of mass for the rigids are not yet computed, this is done here
+		// (If the CreateParticleShape method is used instead of the NvFlexExt methods, the centers of mass will be calculated here)
+		if (m_sim_buffers->rigidTranslations.size() == 0)
+		{
+			m_sim_buffers->rigidTranslations.resize(m_sim_buffers->rigidOffsets.size() - 1, make_float3(0.0f, 0.0f, 0.0f));
+			CalculateRigidCentersOfMass(&m_sim_buffers->positions[0], m_sim_buffers->positions.size(), &m_sim_buffers->rigidOffsets[0], &m_sim_buffers->rigidTranslations[0], &m_sim_buffers->rigidIndices[0], numRigids);
+		}
+
+		// calculate local rest space positions
+		m_sim_buffers->rigidLocalPositions.resize(m_sim_buffers->rigidOffsets.back());
+		CalculateRigidLocalPositions(&m_sim_buffers->positions[0], &m_sim_buffers->rigidOffsets[0], &m_sim_buffers->rigidTranslations[0], &m_sim_buffers->rigidIndices[0], numRigids, &m_sim_buffers->rigidLocalPositions[0]);
+
+		// set rigidRotations to correct length, probably NULL up until here
+		m_sim_buffers->rigidRotations.resize(m_sim_buffers->rigidOffsets.size() - 1, make_float4(0.0f, 0.0f, 0.0f, 1.0f));
+
+		// set rigidLocalNormals to correct length ... is this correct?
+		m_sim_buffers->rigidLocalNormals.resize(m_sim_buffers->rigidOffsets.size() - 1, make_float4(0.0f, 0.0f, 0.0f, 1.0f));
+	}
+
+	std::cout << "Finished creating softbody cube...\n";
+
+	NvFlexExtDestroyAsset(asset);
+
+	std::cout << "Successfully destroyed asset...\n";
 }
 
 inline int GridIndex(int x, int y, int dx) { return y * dx + x; }
@@ -268,11 +527,11 @@ void FlexSOP::buildOutputGeometry(SOP_Output* output)
 	// Read-back simulation data from flex buffers
 	NvFlexGetParticles(m_solver, m_sim_buffers->positions.buffer, NULL);
 	NvFlexGetVelocities(m_solver, m_sim_buffers->velocities.buffer, NULL);
-	NvFlexGetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_number_of_triangles);
+	//NvFlexGetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_number_of_triangles);
 
 	float4* particles = (float4*)NvFlexMap(m_sim_buffers->positions.buffer, eNvFlexMapWait);
 	float3* velocities = (float3*)NvFlexMap(m_sim_buffers->velocities.buffer, eNvFlexMapWait);
-	int* indices = (int*)NvFlexMap(m_sim_buffers->triangles.buffer, eNvFlexMapWait);
+	//int* indices = (int*)NvFlexMap(m_sim_buffers->triangles.buffer, eNvFlexMapWait);
 
 	// Copy to SOP output - could be GPU-bound if VBOs were registered with CUDA...
 	for (size_t i = 0; i < m_sim_buffers->positions.size(); ++i)
@@ -282,16 +541,16 @@ void FlexSOP::buildOutputGeometry(SOP_Output* output)
 						 particles[i].z);
 	}
 
-	for (int i = 0; i < m_sim_buffers->triangles.size() / 3; ++i)
-	{
-		output->addTriangle(indices[i * 3 + 0],
-							indices[i * 3 + 1],
-							indices[i * 3 + 2]);
-	}
+	//for (int i = 0; i < m_sim_buffers->triangles.size() / 3; ++i)
+	//{
+	//	output->addTriangle(indices[i * 3 + 0],
+	//						indices[i * 3 + 1],
+	//						indices[i * 3 + 2]);
+	//}
 
 	NvFlexUnmap(m_sim_buffers->positions.buffer);
 	NvFlexUnmap(m_sim_buffers->velocities.buffer);
-	NvFlexUnmap(m_sim_buffers->triangles.buffer);
+	//NvFlexUnmap(m_sim_buffers->triangles.buffer);
 }
 
 FlexSOP::FlexSOP(const OP_NodeInfo* info) : m_node_info(info)
@@ -362,19 +621,20 @@ void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 		MapBuffers();
 
 		{
-			const float stretchStiffness = 1.0f;
-			const float bendStiffness = 0.95f;
-			const float shearStiffness = 0.95f;
-			const float radius = 0.09f;
-			const int dimx = 30;
-			const int dimz = 30;
-			const int phase = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
-			float spacing = radius * 0.8f;
+			//const float stretchStiffness = 1.0f;
+			//const float bendStiffness = 0.95f;
+			//const float shearStiffness = 0.95f;
+			//const float radius = 0.09f;
+			//const int dimx = 70;
+			//const int dimz = 70;
+			//const int phase = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
+			//float spacing = radius * 0.8f;
 
-			// Create springs
-			auto lower = make_float3(-dimx * spacing * 0.5f, 1.5f, -dimz * spacing * 0.5f);
-			auto velocity = make_float3(0.0f, 0.0f, 0.0f);
-			CreateSpringGrid(lower, dimx, dimz, 1, spacing, phase, stretchStiffness, bendStiffness, shearStiffness, velocity, 0.5f);
+			//// Create springs
+			//auto lower = make_float3(-dimx * spacing * 0.5f, 1.5f, -dimz * spacing * 0.5f);
+			//auto velocity = make_float3(0.0f, 0.0f, 0.0f);
+			//CreateSpringGrid(lower, dimx, dimz, 1, spacing, phase, stretchStiffness, bendStiffness, shearStiffness, velocity, 0.5f);
+			createCubeSoftBody();
 
 			// Enable all particles
 			for (size_t i = 0; i < m_sim_buffers->positions.size(); ++i)
@@ -421,9 +681,22 @@ void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 		NvFlexSetVelocities(m_solver, m_sim_buffers->velocities.buffer, NULL);
 		NvFlexSetPhases(m_solver, m_sim_buffers->phases.buffer, NULL);
 		NvFlexSetActive(m_solver, m_sim_buffers->activeIndices.buffer, NULL);
-		NvFlexSetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_sim_buffers->triangles.size() / 3); 
+		//NvFlexSetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_sim_buffers->triangles.size() / 3); 
 		NvFlexSetSprings(m_solver, m_sim_buffers->springIndices.buffer, m_sim_buffers->springLengths.buffer, m_sim_buffers->springStiffness.buffer, m_sim_buffers->springLengths.size());
 		
+		NvFlexSetRigids(m_solver, 
+			m_sim_buffers->rigidOffsets.buffer, 
+			m_sim_buffers->rigidIndices.buffer, 
+			m_sim_buffers->rigidLocalPositions.buffer, 
+			m_sim_buffers->rigidLocalNormals.buffer, 
+			m_sim_buffers->rigidCoefficients.buffer, 
+			m_sim_buffers->rigidPlasticThresholds.buffer, 
+			m_sim_buffers->rigidPlasticCreeps.buffer, 
+			m_sim_buffers->rigidRotations.buffer, 
+			m_sim_buffers->rigidTranslations.buffer, 
+			m_sim_buffers->rigidOffsets.size() - 1, 
+			m_sim_buffers->rigidIndices.size());
+
 		NvFlexSetActiveCount(m_solver, m_sim_buffers->activeIndices.size());
 
 		// Update the force field based on UI params
