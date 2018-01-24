@@ -306,13 +306,13 @@ void FlexSOP::createCubeSoftBody()
 	const float radius = 0.1f;
 	const float cluster_spacing = 1.0f;
 	const float cluster_radius = 0.0f;
-	const float cluster_stiffness = 0.25f;
+	const float cluster_stiffness = 0.5f;
 	const float link_radius = 0.0f;
 	const float link_stiffness = 1.0f;
 	const float global_stiffness = 1.0f;
 	const float surface_sampling = 0.0f;
-	const float volume_sampling = 0.1f;
-	const float cluster_plastic_threshold = 0.0f;// 0.0015f;
+	const float volume_sampling = 2.0f;
+	const float cluster_plastic_threshold =  0.0015f; //
 	const float cluster_plastic_creep = 0.125f;
 
 	// Create soft body definition
@@ -527,11 +527,11 @@ void FlexSOP::buildOutputGeometry(SOP_Output* output)
 	// Read-back simulation data from flex buffers
 	NvFlexGetParticles(m_solver, m_sim_buffers->positions.buffer, NULL);
 	NvFlexGetVelocities(m_solver, m_sim_buffers->velocities.buffer, NULL);
-	//NvFlexGetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_number_of_triangles);
+	NvFlexGetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_number_of_triangles);
 
 	float4* particles = (float4*)NvFlexMap(m_sim_buffers->positions.buffer, eNvFlexMapWait);
 	float3* velocities = (float3*)NvFlexMap(m_sim_buffers->velocities.buffer, eNvFlexMapWait);
-	//int* indices = (int*)NvFlexMap(m_sim_buffers->triangles.buffer, eNvFlexMapWait);
+	int* indices = (int*)NvFlexMap(m_sim_buffers->triangles.buffer, eNvFlexMapWait);
 
 	// Copy to SOP output - could be GPU-bound if VBOs were registered with CUDA...
 	for (size_t i = 0; i < m_sim_buffers->positions.size(); ++i)
@@ -541,16 +541,16 @@ void FlexSOP::buildOutputGeometry(SOP_Output* output)
 						 particles[i].z);
 	}
 
-	//for (int i = 0; i < m_sim_buffers->triangles.size() / 3; ++i)
-	//{
-	//	output->addTriangle(indices[i * 3 + 0],
-	//						indices[i * 3 + 1],
-	//						indices[i * 3 + 2]);
-	//}
+	for (int i = 0; i < m_sim_buffers->triangles.size() / 3; ++i)
+	{
+		output->addTriangle(indices[i * 3 + 0],
+							indices[i * 3 + 1],
+							indices[i * 3 + 2]);
+	}
 
 	NvFlexUnmap(m_sim_buffers->positions.buffer);
 	NvFlexUnmap(m_sim_buffers->velocities.buffer);
-	//NvFlexUnmap(m_sim_buffers->triangles.buffer);
+	NvFlexUnmap(m_sim_buffers->triangles.buffer);
 }
 
 FlexSOP::FlexSOP(const OP_NodeInfo* info) : m_node_info(info)
@@ -621,20 +621,23 @@ void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 		MapBuffers();
 
 		{
-			//const float stretchStiffness = 1.0f;
-			//const float bendStiffness = 0.95f;
-			//const float shearStiffness = 0.95f;
-			//const float radius = 0.09f;
-			//const int dimx = 70;
-			//const int dimz = 70;
-			//const int phase = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
-			//float spacing = radius * 0.8f;
+			const float stretchStiffness = 1.0f;
+			const float bendStiffness = 0.95f;
+			const float shearStiffness = 0.95f;
+			const float radius = 0.09f;
+			const int dimx = 30;
+			const int dimz = 30;
+			const int phase = NvFlexMakePhase(0, eNvFlexPhaseSelfCollide | eNvFlexPhaseSelfCollideFilter);
+			float spacing = radius * 0.8f;
 
-			//// Create springs
-			//auto lower = make_float3(-dimx * spacing * 0.5f, 1.5f, -dimz * spacing * 0.5f);
-			//auto velocity = make_float3(0.0f, 0.0f, 0.0f);
-			//CreateSpringGrid(lower, dimx, dimz, 1, spacing, phase, stretchStiffness, bendStiffness, shearStiffness, velocity, 0.5f);
+			// Create springs
+			auto lower = make_float3(-dimx * spacing * 0.5f, 1.5f, -dimz * spacing * 0.5f);
+			auto velocity = make_float3(0.0f, 0.0f, 0.0f);
+			CreateSpringGrid(lower, dimx, dimz, 1, spacing, phase, stretchStiffness, bendStiffness, shearStiffness, velocity, 0.5f);
+			
+#if 0
 			createCubeSoftBody();
+#endif
 
 			// Enable all particles
 			for (size_t i = 0; i < m_sim_buffers->positions.size(); ++i)
@@ -681,7 +684,7 @@ void FlexSOP::execute(SOP_Output* output, OP_Inputs* inputs, void* reserved)
 		NvFlexSetVelocities(m_solver, m_sim_buffers->velocities.buffer, NULL);
 		NvFlexSetPhases(m_solver, m_sim_buffers->phases.buffer, NULL);
 		NvFlexSetActive(m_solver, m_sim_buffers->activeIndices.buffer, NULL);
-		//NvFlexSetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_sim_buffers->triangles.size() / 3); 
+		NvFlexSetDynamicTriangles(m_solver, m_sim_buffers->triangles.buffer, NULL, m_sim_buffers->triangles.size() / 3); 
 		NvFlexSetSprings(m_solver, m_sim_buffers->springIndices.buffer, m_sim_buffers->springLengths.buffer, m_sim_buffers->springStiffness.buffer, m_sim_buffers->springLengths.size());
 		
 		NvFlexSetRigids(m_solver, 
